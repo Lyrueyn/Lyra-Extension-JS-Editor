@@ -1,0 +1,47 @@
+{
+  "id": "js-editor",
+  "name": "JavaScript 编辑器",
+  "version": "1.1.0",
+  "entry": "index.html",
+  "description": "JavaScript 编辑器插件：项目文件树、CodeMirror JS/JSON/HTML/CSS 语法高亮、保存、运行、Console 与 Preview。",
+  "kind": "editor-plugin",
+  "fileTypes": [
+    ".js",
+    ".mjs",
+    ".cjs",
+    ".json",
+    ".html",
+    ".htm",
+    ".css",
+    ".md",
+    ".txt"
+  ],
+  "editor": {
+    "id": "js",
+    "name": "JavaScript",
+    "description": "JS / JSON / HTML / CSS 源码编辑器 + 运行控制台",
+    "glyph": "E943",
+    "order": 20
+  },
+  "requires": [
+    "editor"
+  ],
+  "host": {
+    "innerName": "editor.html",
+    "fileParam": "file",
+    "keepMtime": false
+  },
+  "library": {
+    "sidebar": false,
+    "navLabel": "JavaScript-Editor",
+    "glyph": "E943",
+    "title": "JavaScript 编辑器",
+    "description": "编辑器扩展的 JavaScript 插件。",
+    "openLabel": "",
+    "addLabel": "",
+    "authorFallback": "Editor",
+    "cover": "none",
+    "order": 40,
+    "metadata": ""
+  }
+}
