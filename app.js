@@ -35,6 +35,7 @@
     find: { matches: [], index: -1, query: "", caseSensitive: false, open: false },
   };
   let cm = null;
+  let language = null;
 
   function setupFoldHelpers() {
     try {
@@ -324,6 +325,7 @@
         $("dirtyBadge").hidden = !state.dirty;
         $("currentFile").classList.toggle("dirty", state.dirty);
         const stamp = new Date().toTimeString().slice(0, 8);
+        if (language) language.invalidateProjectIndex();
         if (opts.auto) { setStatus("已自动保存 " + stamp); $("statusSave").textContent = "自动保存 " + stamp; }
         else { setStatus("已保存 " + stamp); $("statusSave").textContent = "已保存 " + stamp; }
       }
@@ -362,6 +364,7 @@
     renderOutline();
     updateHistoryButtons();
     setStatus("已加载");
+    if (language) language.invalidateProjectIndex();
   }
 
   function expandParents(rel) {
@@ -943,6 +946,18 @@
     setupFoldHelpers();
     initTheme();
     initEditor();
+    language = window.createLyraLanguageService({
+      getCm: () => cm,
+      getState: () => state,
+      hostCall: hostCall,
+      switchFile: switchFile,
+      toast: toast,
+      setStatus: setStatus,
+      encodeText: encodeText,
+      decodeText: decodeText,
+      afterMutation: async () => { if (cm) { cm.focus(); } },
+    });
+    if (language) { language.attachEditor(cm); language.bindUi(); }
     bind();
     updateChrome();
     setStatus("正在读取项目…");

@@ -57,10 +57,13 @@
             <span id="languageBadge" class="lang-badge">JavaScript</span>
             <span id="dirtyBadge" class="dirty-badge" hidden>未保存</span>
             <span class="spacer"></span>
+            <button id="actionsBtn" class="head-action" type="button" title="代码操作">操作 ▾</button>
             <span id="saveState" class="save-state">就绪</span>
           </div>
           <div id="editorWrap">
             <textarea id="code" spellcheck="false"></textarea>
+            <div id="paramHint" class="param-hint" hidden></div>
+            <div id="hoverCard" class="hover-card" hidden></div>
             <div id="findBar" class="find-bar" hidden>
               <div class="find-row">
                 <input id="findInput" type="text" placeholder="查找…" spellcheck="false" autocomplete="off"/>
@@ -79,8 +82,12 @@
           </div>
         </section>
         <aside id="outlinePanel">
-          <div class="outline-head">Outline <span id="outlineCount">0</span></div>
+          <div class="side-tabs">
+            <button id="sideOutlineBtn" class="side-tab active" type="button">大纲 <span id="outlineCount">0</span></button>
+            <button id="sideRefsBtn" class="side-tab" type="button">引用 <span id="refsCount">0</span></button>
+          </div>
           <div id="outlineList" class="outline-list"></div>
+          <div id="refsList" class="refs-list" hidden></div>
         </aside>
       </div>
 
@@ -103,6 +110,7 @@
       <div id="statusbar">
         <span id="statusPos">Ln 1, Col 1</span>
         <span id="statusFile"></span>
+        <span id="statusType"></span>
         <span id="statusSave"></span>
         <span id="statusRun"></span>
       </div>
@@ -110,6 +118,23 @@
   </div>
 
   <iframe id="runFrame" sandbox="allow-scripts" hidden></iframe>
+  <div id="actionsMenu" class="actions-menu" hidden></div>
+  <div id="importPicker" class="import-picker" hidden>
+    <div class="import-head"><span>自动导入符号</span><button id="importClose" class="panel-tool" type="button">×</button></div>
+    <input id="importSearch" class="import-search" type="text" placeholder="搜索项目导出符号…" spellcheck="false" autocomplete="off"/>
+    <div id="importList" class="import-list"></div>
+  </div>
+  <div id="symbolDialogMask" class="symbol-dialog-mask" hidden>
+    <div class="symbol-dialog">
+      <h3 id="symbolDialogTitle"></h3>
+      <div id="symbolDialogMessage" class="symbol-dialog-message"></div>
+      <input id="symbolDialogInput" class="symbol-dialog-input" type="text" spellcheck="false" autocomplete="off"/>
+      <div class="symbol-dialog-actions">
+        <button id="symbolDialogCancel" class="find-btn" type="button">取消</button>
+        <button id="symbolDialogOk" class="find-btn primary" type="button">确定</button>
+      </div>
+    </div>
+  </div>
   <div id="toast" class="toast" hidden></div>
 
   <script src="vendor/codemirror/codemirror.min.js"></script>
@@ -125,6 +150,7 @@
   <script src="vendor/codemirror/addon/fold/brace-fold.min.js"></script>
   <script src="vendor/codemirror/addon/hint/show-hint.min.js"></script>
   <script src="vendor/codemirror/addon/hint/javascript-hint.min.js"></script>
+  <script src="language.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
