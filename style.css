@@ -276,3 +276,5 @@ html[data-js-theme="light"] .tb-btn.primary { color: #fff; }
 .console-line.run-stop .console-text { color: var(--danger); }
 .console-run-sep { height: 9px; border: 0; margin: 0; }
 .icon-tool:disabled { opacity: .35; cursor: default; }
+
+html[data-shell="1"] #sidebar, html[data-shell="1"] .side-hint { display: none !important; }

@@ -6,6 +6,9 @@
   const JS_EXT = new Set([".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"]);
   const THEME_KEY = "lyra.js.editor.theme";
   const THEMES = new Set(["javascript", "lyra", "violet", "emerald", "sunset", "sakura", "light"]);
+  const SHELL_MODE = params.get("shell") === "1" && window.parent !== window;
+  const shellPending = new Map();
+  let shellSeq = 1;
   const state = {
     projectName: params.get("projectName") || "JS 项目",
     root: "",
@@ -70,7 +73,30 @@
     return "other";
   }
 
+  function shellHostCall(type, payload) {
+    return new Promise((resolve, reject) => {
+      const requestId = "js-shell-" + (shellSeq++) + "-" + Date.now();
+      shellPending.set(requestId, { resolve, reject });
+      window.parent.postMessage({ type: "shell-host-request", requestId: requestId, method: type, payload: payload || {} }, "*");
+      setTimeout(() => {
+        if (!shellPending.has(requestId)) return;
+        shellPending.delete(requestId);
+        reject(new Error("编辑器外壳响应超时"));
+      }, 20000);
+    });
+  }
+  window.addEventListener("message", (event) => {
+    const d = event.data || {};
+    if (d.type !== "shell-host-result") return;
+    const p = shellPending.get(d.requestId);
+    if (!p) return;
+    shellPending.delete(d.requestId);
+    if (d.ok === false) p.reject(new Error(d.error || "外壳操作失败"));
+    else p.resolve(d);
+  });
+
   function hostCall(type, payload) {
+    if (SHELL_MODE) return shellHostCall(type, payload);
     return new Promise((resolve, reject) => {
       if (!host) { reject(new Error("请从璃鸢镜扩展窗口打开")); return; }
       const requestId = "js-" + (state.requestId++) + "-" + Date.now();
@@ -723,6 +749,7 @@
   }
 
   async function init() {
+    if (SHELL_MODE) document.documentElement.dataset.shell = "1";
     setupFoldHelpers();
     initTheme();
     initEditor();
