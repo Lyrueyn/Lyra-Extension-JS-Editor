@@ -111,3 +111,10 @@ JavaScript 编辑器是「编辑器」扩展的 editor-plugin 插件。
 - 参数提示不再固定在编辑区底部，改为跟随光标显示，并加「参数」标签，避免和悬停提示混淆。
 - 悬停支持对象字面量属性：如 once: true 显示 PROP once: boolean。
 - 悬停位置使用 lineAtHeight + coordsChar 的稳定组合，整个标识符每个字符都能命中。
+
+## 1.5.0
+
+- 多变量声明：var raf = null, last = 0, running = false, t = 0 中每个变量分别推断类型。
+- 类型推断增强：字符串/数字/布尔/null/数组元素类型/对象/函数/三元/逻辑/比较/算术/`new`/常见调用返回类型。
+- 内置属性类型：document.readyState / window.innerWidth / element.scrollTop 等。
+- 对象字面量属性、类字段、析构变量、函数 return 推断、最近符号定位。

@@ -113,6 +113,11 @@
     assign: { params: [{ name: "target", type: "object" }, { name: "...sources", type: "object" }], returns: "object" },
     freeze: { params: [{ name: "obj", type: "object" }], returns: "object" },
   };
+  const BUILTIN_PROPERTIES = {
+    readyState: "string", visibilityState: "string", hidden: "boolean", title: "string", body: "HTMLElement", head: "HTMLElement", documentElement: "HTMLElement", cookie: "string", URL: "string", location: "Location", activeElement: "Element | null", characterSet: "string", contentType: "string", referrer: "string", domain: "string", lastModified: "string",
+    innerWidth: "number", innerHeight: "number", outerWidth: "number", outerHeight: "number", scrollX: "number", scrollY: "number", pageXOffset: "number", pageYOffset: "number", devicePixelRatio: "number", name: "string", closed: "boolean", opener: "Window | null", parent: "Window", top: "Window", self: "Window", localStorage: "Storage", sessionStorage: "Storage", console: "Console", navigator: "Navigator", history: "History",
+    length: "number", textContent: "string", innerHTML: "string", innerText: "string", outerHTML: "string", value: "string", checked: "boolean", disabled: "boolean", selected: "boolean", multiple: "boolean", className: "string", id: "string", tagName: "string", nodeName: "string", nodeType: "number", childNodes: "NodeList", children: "HTMLCollection", firstChild: "Node | null", lastChild: "Node | null", nextSibling: "Node | null", previousSibling: "Node | null", parentNode: "Node | null", parentElement: "Element | null", classList: "DOMTokenList", style: "CSSStyleDeclaration", dataset: "DOMStringMap", ownerDocument: "Document", offsetWidth: "number", offsetHeight: "number", clientWidth: "number", clientHeight: "number", scrollWidth: "number", scrollHeight: "number", scrollTop: "number", scrollLeft: "number", src: "string", href: "string", target: "string", rel: "string", type: "string", width: "number", height: "number", x: "number", y: "number", left: "number", top: "number", right: "number", bottom: "number", complete: "boolean", naturalWidth: "number", naturalHeight: "number", currentTime: "number", duration: "number", paused: "boolean", volume: "number", muted: "boolean",
+  };
   const JS_RESERVED = new Set(["break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "export", "extends", "finally", "for", "function", "if", "import", "in", "instanceof", "let", "new", "return", "super", "switch", "this", "throw", "try", "typeof", "var", "void", "while", "with", "yield", "async", "await", "of", "from", "as", "get", "set", "static", "true", "false", "null", "undefined"]);
   const BUILTIN_GLOBALS = { console: "Console", document: "Document", window: "Window", globalThis: "globalThis", Math: "Math", JSON: "JSON", Object: "ObjectConstructor", Array: "ArrayConstructor", String: "StringConstructor", Number: "NumberConstructor", Boolean: "BooleanConstructor", Date: "DateConstructor", RegExp: "RegExpConstructor", Promise: "PromiseConstructor", Map: "MapConstructor", Set: "SetConstructor", Error: "ErrorConstructor", localStorage: "Storage", sessionStorage: "Storage", location: "Location", navigator: "Navigator", history: "History", fetch: "function", setTimeout: "function", setInterval: "function" };
   const KIND_LABEL = { function: "FN", method: "FN", class: "CLASS", variable: "VAR", property: "PROP", interface: "TYPE", type: "TYPE", constructor: "FN", import: "IMP" };
@@ -169,21 +174,127 @@
     return out.map((x) => x.trim()).filter(Boolean);
   }
 
+  function splitTopLevelExpr(value, op) {
+    const parts = [];
+    let depth = 0;
+    let quote = "";
+    let start = 0;
+    const text = String(value || "");
+    for (let i = 0; i < text.length; i += 1) {
+      const ch = text[i];
+      if (quote) {
+        if (ch === "\\") i += 1;
+        else if (ch === quote) quote = "";
+        continue;
+      }
+      if (ch === '"' || ch === "'" || ch === "`") { quote = ch; continue; }
+      if (ch === "(" || ch === "[" || ch === "{") depth += 1;
+      else if (ch === ")" || ch === "]" || ch === "}") depth = Math.max(0, depth - 1);
+      else if (depth === 0 && text.startsWith(op, i)) {
+        parts.push(text.slice(start, i).trim());
+        start = i + op.length;
+        i += op.length - 1;
+      }
+    }
+    parts.push(text.slice(start).trim());
+    return parts;
+  }
+  function uniqueTypes(types) {
+    const out = [];
+    for (const t of types) {
+      const v = String(t || "").trim();
+      if (v && !out.includes(v)) out.push(v);
+    }
+    return out.length === 1 ? out[0] : out.join(" | ");
+  }
   function inferType(expr) {
-    const value = String(expr || "").trim();
+    let value = String(expr || "").trim().replace(/;\s*$/, "");
     if (!value) return "";
-    if (/^["'`]/.test(value)) return "string";
-    if (/^-?\d+(\.\d+)?$/.test(value)) return "number";
+    while (/^\(.*\)$/.test(value)) value = value.slice(1, -1).trim();
+    if (/^["']/.test(value)) return "string";
+    if (/^`/.test(value)) return "string";
+    if (/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(value)) return "number";
     if (/^(true|false)$/.test(value)) return "boolean";
     if (/^null$/.test(value)) return "null";
     if (/^undefined$/.test(value)) return "undefined";
-    if (/^\[/.test(value)) return "array";
+    if (/^NaN$/.test(value)) return "number";
+    if (/^Infinity$/.test(value)) return "number";
+    if (/^\[/.test(value)) {
+      const close = value.lastIndexOf("]");
+      const inner = close > 0 ? value.slice(1, close) : "";
+      const items = splitParams(inner);
+      const types = items.map(inferType).filter(Boolean);
+      if (!types.length) return "any[]";
+      const uniq = uniqueTypes(types);
+      return (types.length > 1 && uniq.includes(" | ") ? "(" + uniq + ")" : uniq) + "[]";
+    }
     if (/^\{/.test(value)) return "object";
     if (/^\//.test(value)) return "RegExp";
     if (/^(async\s*)?(\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/.test(value)) return "function";
     if (/^(async\s+)?function\b/.test(value)) return "function";
+    if (/^typeof\b/.test(value)) return "string";
+    if (/^!+\s*/.test(value)) return "boolean";
+    if (/\s*===\s*|\s*!==\s*|\s*==\s*|\s*!=\s*|\s*<=\s*|\s*>=\s*|\s*<\s*|\s*>\s*|\binstanceof\b|\bin\b/.test(value)) return "boolean";
+    if (/^Array\.isArray\s*\(/.test(value)) return "boolean";
+    if (/^Number\.isFinite\s*\(|^isFinite\s*\(|^isNaN\s*\(/.test(value)) return "boolean";
+    if (/^Boolean\s*\(/.test(value)) return "boolean";
+    const ternary = splitTopLevelExpr(value, "?");
+    if (ternary.length === 2) {
+      const tail = splitTopLevelExpr(ternary[1], ":");
+      if (tail.length === 2) return uniqueTypes([inferType(tail[0]), inferType(tail[1])].filter(Boolean)) || "any";
+    }
+    for (const op of ["??", "||", "&&"]) {
+      const parts = splitTopLevelExpr(value, op);
+      if (parts.length > 1) {
+        const rawTypes = parts.map(inferType);
+        const types = rawTypes.filter(Boolean);
+        if (types.length) {
+          if (rawTypes.some((t) => !t) && types.includes("null")) return "any | null";
+          return uniqueTypes(types);
+        }
+      }
+    }
+    const plus = splitTopLevelExpr(value, "+");
+    if (plus.length > 1) {
+      const types = plus.map(inferType);
+      if (types.some((typ) => typ === "string")) return "string";
+      if (types.every((typ) => typ === "number")) return "number";
+      return "number | string";
+    }
+    if (/^[^=><]+[+\-*/%]\s*[^=]/.test(value) && !/^\s*[-+]\s*[A-Za-z_$]/.test(value)) return "number";
     const nw = value.match(/^new\s+([A-Za-z_$][\w$]*)/);
     if (nw) return nw[1];
+    const call = value.match(/^(?:await\s+)?([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(/);
+    if (call) {
+      const callee = call[1];
+      if (BUILTIN_SIGNATURES[callee] && BUILTIN_SIGNATURES[callee].returns) return BUILTIN_SIGNATURES[callee].returns;
+      if (callee === "Number" || callee === "parseInt" || callee === "parseFloat") return "number";
+      if (callee === "String" || callee === "JSON.stringify" || callee === "prompt") return "string";
+      if (callee === "Boolean") return "boolean";
+      if (callee === "Array" || callee === "Object.keys" || callee === "Object.values" || callee === "Object.entries") return "array";
+      if (callee === "Object") return "object";
+      if (callee === "Date.now") return "number";
+      if (callee === "Date") return "Date";
+      if (callee === "Promise" || callee === "Promise.resolve" || callee === "fetch") return "Promise";
+      const last = callee.split(".").pop();
+      if (["map", "filter", "slice", "concat", "flat", "flatMap", "sort", "reverse", "keys", "values", "entries"].includes(last)) return "array";
+      if (["join", "toString", "toUpperCase", "toLowerCase", "trim", "replace", "replaceAll", "padStart", "padEnd"].includes(last)) return "string";
+      if (["getItem", "querySelector", "getElementById", "getAttribute"].includes(last)) return "string | null";
+      if (["querySelectorAll", "getElementsByClassName", "getElementsByTagName"].includes(last)) return "NodeList";
+      if (["createElement", "appendChild", "insertBefore", "closest"].includes(last)) return "HTMLElement";
+      if (["addEventListener", "removeEventListener", "append", "prepend", "remove", "setAttribute"].includes(last)) return "void";
+      if (["then", "catch", "finally"].includes(last)) return "Promise";
+      if (last === "map" || last === "filter") return "array";
+    }
+    const member = value.match(/^([A-Za-z_$][\w$]*)\s*\.\s*([A-Za-z_$][\w$]*)$/);
+    if (member) {
+      if (BUILTIN_PROPERTIES[member[2]]) return BUILTIN_PROPERTIES[member[2]];
+      if (member[2] === "length") return "number";
+    }
+    if (/^(document|window|navigator|location)\./.test(value)) {
+      const prop = value.split(".").pop();
+      if (BUILTIN_PROPERTIES[prop]) return BUILTIN_PROPERTIES[prop];
+    }
     return "";
   }
 
@@ -232,6 +343,48 @@
       if (rest) name = "..." + name;
       return { name: name || "param", type: type || "any", optional: optional, default: dflt, description: (doc && doc.description) || "" };
     });
+  }
+
+  function collectBindingNames(pattern, out) {
+    const text = String(pattern || "").trim();
+    if (!text) return out;
+    if (text.startsWith("{")) {
+      const inner = text.slice(1, text.lastIndexOf("}"));
+      for (const item of splitParams(inner)) {
+        const part = item.trim();
+        if (!part || part.startsWith("...")) continue;
+        const colon = part.indexOf(":");
+        const value = colon >= 0 ? part.slice(colon + 1).trim() : part;
+        collectBindingNames(value, out);
+      }
+    } else if (text.startsWith("[")) {
+      const inner = text.slice(1, text.lastIndexOf("]"));
+      for (const item of splitParams(inner)) collectBindingNames(item, out);
+    } else {
+      const m = text.match(/^([A-Za-z_$][\w$]*)/);
+      if (m) out.push(m[1]);
+    }
+    return out;
+  }
+
+  function inferReturnType(lines, startLine) {
+    const types = [];
+    let depth = 0;
+    let started = false;
+    for (let i = startLine; i < lines.length; i += 1) {
+      const line = lines[i];
+      for (const ch of line) {
+        if (ch === "{") { depth += 1; started = true; }
+        else if (ch === "}") depth -= 1;
+      }
+      const m = line.match(/^\s*return\s+(.+?);?\s*$/);
+      if (m) {
+        const typ = inferType(m[1]);
+        if (typ) types.push(typ);
+      }
+      if (started && i > startLine && depth <= 0) break;
+    }
+    return uniqueTypes(types);
   }
 
   function signatureFor(sym) {
@@ -317,7 +470,8 @@
         const doc = docAt(lineIndex);
         const name = m[1];
         const params = parseParams(m[2], doc);
-        const returns = (m[3] || (doc && doc.returns && doc.returns.type) || "").trim();
+        let returns = (m[3] || (doc && doc.returns && doc.returns.type) || "").trim();
+        if (!returns) returns = inferReturnType(lines, lineIndex);
         addSymbol({ name, kind: "function", line: lineIndex, ch: line.indexOf(name), params, returns, type: "function", doc, exported, defaultExport, signature: "function " + name + "(" + params.map((p) => p.name + (p.optional ? "?" : "") + (p.type ? ": " + p.type : "")).join(", ") + ")" + (returns ? ": " + returns : "") });
         for (const param of params) {
           const pn = param.name.replace(/^\.\.\./, "");
@@ -339,11 +493,18 @@
           if (j > lineIndex && depth <= 0) break;
         }
         for (let j = lineIndex + 1; j < end; j += 1) {
+          const field = lines[j].match(/^\s+(?:static\s+)?([A-Za-z_$][\w$]*)\s*=\s*(.*?)\s*;?\s*$/);
+          if (field && !/^(if|for|while|switch|return|throw|const|let|var|function)$/.test(field[1])) {
+            const ftype = inferType(field[2]) || "any";
+            addSymbol({ name: field[1], kind: "property", line: j, ch: lines[j].indexOf(field[1]), type: ftype, doc: docAt(j), parent: className, exported: false, defaultExport: false, signature: field[1] + ": " + ftype });
+            continue;
+          }
           const mm = lines[j].match(/^\s+(?:(?:async|static|get|set)\s+)*([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*(?::\s*([^{]+?))?\s*\{/);
           if (!mm) continue;
           const md = docAt(j);
           const params = parseParams(mm[2], md);
-          const returns = (mm[3] || (md && md.returns && md.returns.type) || "").trim();
+          let returns = (mm[3] || (md && md.returns && md.returns.type) || "").trim();
+          if (!returns) returns = inferReturnType(lines, j);
           addSymbol({ name: mm[1], kind: "method", line: j, ch: lines[j].indexOf(mm[1]), params, returns, type: "method", doc: md, parent: className, exported: false, defaultExport: false });
           for (const param of params) {
             const pn = param.name.replace(/^\.\.\./, "");
@@ -359,25 +520,79 @@
         continue;
       }
 
-      m = body.match(/^\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::\s*([^=]+?))?\s*=\s*(.*)$/);
+      m = body.match(/^\s*(const|let|var)\s+([\s\S]+?)\s*;?\s*$/);
       if (m) {
-        const name = m[1];
-        const annotation = (m[2] || "").trim();
-        const rhs = m[3] || "";
+        const declKind = m[1];
+        const rest = m[2].trim();
         const doc = docAt(lineIndex);
-        const arrow = rhs.match(/^(?:async\s*)?(?:\(([^)]*)\)|([A-Za-z_$][\w$]*))\s*=>/);
-        const fn = rhs.match(/^(?:async\s+)?function\s*\*?\s*\w*\s*\(([^)]*)\)\s*(?::\s*([^{]+?))?\s*\{/);
-        if (arrow || fn) {
-          const params = parseParams(arrow ? (arrow[1] || arrow[2] || "") : fn[1], doc);
-          const returns = ((arrow ? "" : fn[2]) || (doc && doc.returns && doc.returns.type) || annotation).trim();
-          addSymbol({ name, kind: "function", line: lineIndex, ch: line.indexOf(name), params, returns, type: annotation || "function", doc, exported, defaultExport, declKind: "const", signature: name + "(" + params.map((p) => p.name + (p.optional ? "?" : "") + (p.type ? ": " + p.type : "")).join(", ") + ")" + (returns ? ": " + returns : "") });
-          for (const param of params) {
-            const pn = param.name.replace(/^\.\.\./, "");
-            if (pn) addSymbol({ name: pn, kind: "variable", line: lineIndex, ch: line.indexOf(name), type: param.type, doc: { description: param.description || "", params: [], returns: null }, local: true, parent: name, exported: false, defaultExport: false, signature: pn + ": " + param.type });
+        let searchFrom = 0;
+        for (const rawPart of splitParams(rest)) {
+          const part = rawPart.trim().replace(/;\s*$/, "");
+          if (!part) continue;
+          if (part.startsWith("{") || part.startsWith("[")) {
+            const open = part[0];
+            const close = open === "{" ? "}" : "]";
+            const endIdx = part.lastIndexOf(close);
+            if (endIdx > 0) {
+              const names = collectBindingNames(part.slice(0, endIdx + 1), []);
+              const rhs = part.slice(endIdx + 1).replace(/^\s*=\s*/, "").trim();
+              const bindType = rhs ? (inferType(rhs) || (open === "{" ? "object" : "array")) : (open === "{" ? "object" : "array");
+              for (const name of names) {
+                const ch = line.indexOf(name, searchFrom);
+                searchFrom = Math.max(0, ch + name.length);
+                addSymbol({ name, kind: "variable", line: lineIndex, ch: Math.max(0, ch), type: bindType, doc, local: true, exported, defaultExport, declKind, signature: declKind + " " + name + ": " + bindType });
+              }
+            }
+            continue;
           }
-        } else {
-          const typ = annotation || inferType(rhs) || "any";
-          addSymbol({ name, kind: "variable", line: lineIndex, ch: line.indexOf(name), type: typ, doc, exported, defaultExport, declKind: "const", signature: "const " + name + ": " + typ });
+          const dm = part.match(/^([A-Za-z_$][\w$]*)\s*(?::\s*([^=]+?))?\s*(?:=\s*([\s\S]*))?$/);
+          if (!dm) continue;
+          const name = dm[1];
+          const annotation = (dm[2] || "").trim();
+          const rhs = (dm[3] || "").trim();
+          const ch = Math.max(0, line.indexOf(name, searchFrom));
+          searchFrom = ch + name.length;
+          const arrow = rhs.match(/^(?:async\s*)?(?:\(([^)]*)\)|([A-Za-z_$][\w$]*))\s*=>/);
+          const fn = rhs.match(/^(?:async\s+)?function\s*\*?\s*\w*\s*\(([^)]*)\)\s*(?::\s*([^{]+?))?\s*\{/);
+          if (arrow || fn) {
+            const params = parseParams(arrow ? (arrow[1] || arrow[2] || "") : fn[1], doc);
+            let returns = ((arrow ? "" : fn[2]) || (doc && doc.returns && doc.returns.type) || annotation).trim();
+            if (!returns && arrow) {
+              const bodyExpr = rhs.slice(rhs.indexOf("=>") + 2).trim();
+              if (!bodyExpr.startsWith("{")) returns = inferType(bodyExpr);
+            }
+            if (!returns) returns = inferReturnType(lines, lineIndex);
+            addSymbol({ name, kind: "function", line: lineIndex, ch, params, returns, type: annotation || "function", doc, exported, defaultExport, declKind, signature: name + "(" + params.map((p) => p.name + (p.optional ? "?" : "") + (p.type ? ": " + p.type : "")).join(", ") + ")" + (returns ? ": " + returns : "") });
+            for (const param of params) {
+              const pn = param.name.replace(/^\.\.\./, "");
+              if (pn) addSymbol({ name: pn, kind: "variable", line: lineIndex, ch, type: param.type, doc: { description: param.description || "", params: [], returns: null }, local: true, parent: name, exported: false, defaultExport: false, signature: pn + ": " + param.type });
+            }
+          } else {
+            const typ = annotation || inferType(rhs) || "any";
+            addSymbol({ name, kind: "variable", line: lineIndex, ch, type: typ, doc, exported, defaultExport, declKind, signature: declKind + " " + name + ": " + typ });
+            if (rhs.startsWith("{")) {
+              let depth = 0;
+              let objEnd = lineIndex;
+              for (let j = lineIndex; j < lines.length; j += 1) {
+                for (const c of lines[j]) { if (c === "{") depth += 1; else if (c === "}") depth -= 1; }
+                objEnd = j;
+                if (j > lineIndex && depth <= 0) break;
+              }
+              for (let j = lineIndex + 1; j < objEnd; j += 1) {
+                const prop = lines[j].match(/^\s+([A-Za-z_$][\w$]*)\s*:\s*(.+?)\s*,?\s*$/);
+                if (prop) {
+                  const ptype = inferType(prop[2]) || "any";
+                  addSymbol({ name: prop[1], kind: "property", line: j, ch: lines[j].indexOf(prop[1]), type: ptype, doc: null, parent: name, exported: false, defaultExport: false, signature: prop[1] + ": " + ptype });
+                  continue;
+                }
+                const mm = lines[j].match(/^\s+(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*\{/);
+                if (mm) {
+                  const params = parseParams(mm[2], null);
+                  addSymbol({ name: mm[1], kind: "method", line: j, ch: lines[j].indexOf(mm[1]), params, returns: "", type: "method", doc: null, parent: name, exported: false, defaultExport: false });
+                }
+              }
+            }
+          }
         }
         continue;
       }
@@ -524,13 +739,17 @@
     function builtinHoverAt(pos, word) {
       const editor = cm();
       if (!editor) return null;
-      const before = editor.getLine(pos.line).slice(0, pos.ch);
+      const before = editor.getLine(pos.line).slice(0, word.from ? word.from.ch : pos.ch);
       const obj = before.match(/([A-Za-z_$][\w$]*)\s*\.\s*$/);
       const full = obj ? obj[1] + "." + word.name : word.name;
       const sig = BUILTIN_SIGNATURES[full] || (obj ? BUILTIN_MEMBERS[word.name] : BUILTIN_MEMBERS[word.name]);
       if (sig) {
         const display = obj ? obj[1] + "." + word.name : word.name;
         return { name: display, kind: "method", params: sig.params, returns: sig.returns, type: "function", _builtin: true, signature: display + "(" + sig.params.map((p) => p.name + (p.type ? ": " + p.type : "")).join(", ") + ")" + (sig.returns ? ": " + sig.returns : "") };
+      }
+      if (obj && BUILTIN_PROPERTIES[word.name]) {
+        const display = obj[1] + "." + word.name;
+        return { name: display, kind: "property", type: BUILTIN_PROPERTIES[word.name], _builtin: true, signature: display + ": " + BUILTIN_PROPERTIES[word.name] };
       }
       if (BUILTIN_GLOBALS[word.name]) {
         const type = BUILTIN_GLOBALS[word.name];
@@ -596,7 +815,8 @@
       const word = wordNear(editor, pos);
       if (!word) { hideHover(); return; }
       const analysis = currentAnalysis();
-      const local = analysis.symbols.find((s) => s.name === word.name);
+      const candidates = analysis.symbols.filter((s) => s.name === word.name);
+      const local = candidates.find((s) => s.line === pos.line) || candidates.reduce((best, cur) => (!best || Math.abs((cur.line || 0) - pos.line) < Math.abs((best.line || 0) - pos.line) ? cur : best), null);
       let sym = local;
       let rel = st().currentRel;
       if (!sym && projectLoaded) {
