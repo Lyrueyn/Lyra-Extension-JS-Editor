@@ -468,8 +468,44 @@
       if (el) el.hidden = true;
     }
     function posFromMouse(editor, mouseEvent) {
-      const rect = editor.getWrapperElement().getBoundingClientRect();
-      return editor.coordsChar({ left: mouseEvent.clientX - rect.left, top: mouseEvent.clientY - rect.top }, "local");
+      try {
+        const target = mouseEvent.target;
+        const lineEl = target && target.closest ? target.closest(".CodeMirror-line") : null;
+        if (lineEl) {
+          const codeEl = lineEl.parentElement;
+          const lines = codeEl ? Array.from(codeEl.children).filter((x) => x.classList && x.classList.contains("CodeMirror-line")) : [];
+          const idx = lines.indexOf(lineEl);
+          const viewport = typeof editor.getViewport === "function" ? editor.getViewport() : { from: 0 };
+          if (idx >= 0) {
+            const lineNo = viewport.from + idx;
+            let ch = -1;
+            const range = document.caretRangeFromPoint ? document.caretRangeFromPoint(mouseEvent.clientX, mouseEvent.clientY) : null;
+            if (range && lineEl.contains(range.startContainer)) {
+              const walker = document.createTreeWalker(lineEl, NodeFilter.SHOW_TEXT);
+              let pos = 0;
+              let node = null;
+              while ((node = walker.nextNode()) && node !== range.startContainer) pos += (node.nodeValue || "").length;
+              if (node === range.startContainer) ch = pos + range.startOffset;
+            }
+            if (ch < 0 && target && lineEl.contains(target) && target.textContent) {
+              let base = 0;
+              const walker = document.createTreeWalker(lineEl, NodeFilter.SHOW_TEXT);
+              let node = null;
+              while ((node = walker.nextNode()) && node !== target) base += (node.nodeValue || "").length;
+              const rect = target.getBoundingClientRect();
+              const textLength = target.textContent.length || 1;
+              const ratio = Math.max(0, Math.min(0.999, (mouseEvent.clientX - rect.left) / Math.max(1, rect.width)));
+              ch = base + Math.floor(ratio * textLength);
+            }
+            if (ch >= 0) {
+              const word = wordAtPos(editor, { line: lineNo, ch });
+              const expected = String(target.textContent || "");
+              if (!expected || !word || expected.includes(word.name) || word.name.includes(expected)) return { line: lineNo, ch };
+            }
+          }
+        }
+      } catch { }
+      return editor.coordsChar({ left: mouseEvent.clientX, top: mouseEvent.clientY }, "window");
     }
     function showHover(mouseEvent) {
       const editor = cm();
