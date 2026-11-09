@@ -115,7 +115,7 @@
   };
   const JS_RESERVED = new Set(["break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "export", "extends", "finally", "for", "function", "if", "import", "in", "instanceof", "let", "new", "return", "super", "switch", "this", "throw", "try", "typeof", "var", "void", "while", "with", "yield", "async", "await", "of", "from", "as", "get", "set", "static", "true", "false", "null", "undefined"]);
   const BUILTIN_GLOBALS = { console: "Console", document: "Document", window: "Window", globalThis: "globalThis", Math: "Math", JSON: "JSON", Object: "ObjectConstructor", Array: "ArrayConstructor", String: "StringConstructor", Number: "NumberConstructor", Boolean: "BooleanConstructor", Date: "DateConstructor", RegExp: "RegExpConstructor", Promise: "PromiseConstructor", Map: "MapConstructor", Set: "SetConstructor", Error: "ErrorConstructor", localStorage: "Storage", sessionStorage: "Storage", location: "Location", navigator: "Navigator", history: "History", fetch: "function", setTimeout: "function", setInterval: "function" };
-  const KIND_LABEL = { function: "FN", method: "FN", class: "CLASS", variable: "VAR", interface: "TYPE", type: "TYPE", constructor: "FN", import: "IMP" };
+  const KIND_LABEL = { function: "FN", method: "FN", class: "CLASS", variable: "VAR", property: "PROP", interface: "TYPE", type: "TYPE", constructor: "FN", import: "IMP" };
 
   function escHtml(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -612,7 +612,15 @@
         rel = "";
       }
       if (!sym && !JS_RESERVED.has(word.name)) {
-        sym = { name: word.name, kind: "variable", type: "未知", _unknown: true, signature: word.name + ": 未知", doc: { description: "当前文件没有找到它的声明；可能是外部全局、未解析的局部变量或对象成员。" } };
+        const lineText = editor.getLine(pos.line) || "";
+        const after = lineText.slice(word.to.ch);
+        const prop = after.match(/^\s*:\s*([^,}]+)/);
+        const propType = prop ? inferType(prop[1].trim()) : "";
+        if (prop) {
+          sym = { name: word.name, kind: "property", type: propType || "any", _unknown: true, signature: word.name + ": " + (propType || "any"), doc: { description: "对象字面量属性（未在当前文件的顶层符号表中）" } };
+        } else {
+          sym = { name: word.name, kind: "variable", type: "未知", _unknown: true, signature: word.name + ": 未知", doc: { description: "当前文件没有找到它的声明；可能是外部全局、未解析的局部变量或对象成员。" } };
+        }
         rel = "";
       }
       if (!sym) { hideHover(); return; }
@@ -680,10 +688,20 @@
         const params = sym.params || [];
         const active = Math.min(context.active, Math.max(0, params.length - 1));
         const rendered = params.map((p, i) => '<span class="pm-param' + (i === active ? " active" : "") + '">' + escHtml(p.name) + (p.optional ? "?" : "") + (p.type ? '<span class="pm-type">: ' + escHtml(p.type) + '</span>' : "") + '</span>').join(", ");
-        let html = '<span class="pm-name">' + escHtml(sym.name) + '</span>(' + rendered + ')' + (sym.returns ? '<span class="pm-return">: ' + escHtml(sym.returns) + '</span>' : "");
+        let html = '<span class="pm-tag">参数</span><span class="pm-name">' + escHtml(sym.name) + '</span>(' + rendered + ')' + (sym.returns ? '<span class="pm-return">: ' + escHtml(sym.returns) + '</span>' : "");
         if (params[active] && params[active].description) html += '\n<span class="pm-param">' + escHtml(params[active].description) + '</span>';
         el.innerHTML = html;
         el.hidden = false;
+        const cursor = cm().cursorCoords(null, "window");
+        const wrapRect = document.getElementById("editorWrap").getBoundingClientRect();
+        let left = cursor.left - wrapRect.left + 10;
+        let top = cursor.bottom - wrapRect.top + 8;
+        const width = el.offsetWidth;
+        const height = el.offsetHeight;
+        if (left + width > wrapRect.width - 8) left = Math.max(8, wrapRect.width - width - 8);
+        if (top + height > wrapRect.height - 8) top = Math.max(8, cursor.top - wrapRect.top - height - 8);
+        el.style.left = Math.round(left) + "px";
+        el.style.top = Math.round(top) + "px";
       }, 70);
     }
     function updateStatusType() {

@@ -105,3 +105,9 @@ JavaScript 编辑器是「编辑器」扩展的 editor-plugin 插件。
 - 重新实现悬停位置定位：用 lineAtHeight 取行、coordsChar 取列，修复中间字符没有提示/提示错符号。
 - 悬停覆盖任何标识符：未找到声明时也给基础提示，不再完全无声。
 - addEventListener、map、filter、querySelector 等常见内置成员支持通用悬停签名。
+
+## 1.4.4
+
+- 参数提示不再固定在编辑区底部，改为跟随光标显示，并加「参数」标签，避免和悬停提示混淆。
+- 悬停支持对象字面量属性：如 once: true 显示 PROP once: boolean。
+- 悬停位置使用 lineAtHeight + coordsChar 的稳定组合，整个标识符每个字符都能命中。
