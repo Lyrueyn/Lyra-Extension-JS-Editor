@@ -23,6 +23,8 @@
     suppressChange: false,
     outlineTimer: 0,
     autoHintCooldown: 0,
+    hintSymbolsValue: null,
+    hintSymbols: [],
     autoSaveTimer: 0,
     saveInFlight: false,
     saveQueued: false,
@@ -736,6 +738,14 @@
       .map((name) => jsHintItem(JS_MEMBERS[obj] ? "prop" : "prop", name, obj ? obj + "." : "member"));
   }
 
+  function jsHintSymbols(cm) {
+    const value = cm.getValue();
+    if (state.hintSymbolsValue === value) return state.hintSymbols;
+    state.hintSymbolsValue = value;
+    state.hintSymbols = collectSymbols(value);
+    return state.hintSymbols;
+  }
+
   function jsHintAt(cm) {
     const cursor = cm.getCursor();
     const token = cm.getTokenAt(cursor);
@@ -764,7 +774,8 @@
     for (const word of JS_HINT_KEYWORDS) add(jsHintItem("kw", word));
     for (const word of JS_HINT_GLOBALS) add(jsHintItem("global", word));
     if (cm) {
-      for (const sym of collectSymbols(cm.getValue())) add(jsHintItem(sym.kind === "class" ? "class" : sym.kind === "var" ? "var" : "fn", sym.name, "line " + sym.line));
+      const symbols = jsHintSymbols(cm);
+      for (const sym of symbols) add(jsHintItem(sym.kind === "class" ? "class" : sym.kind === "var" ? "var" : "fn", sym.name, "line " + sym.line));
     }
     for (const snippet of JS_HINT_SNIPPETS) {
       add(jsHintItem("snip", snippet.text, snippet.detail, snippet.label));
