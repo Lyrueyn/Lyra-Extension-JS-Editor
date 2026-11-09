@@ -27,6 +27,7 @@
     "setTimeout": { params: [{ name: "handler", type: "function" }, { name: "timeout?", type: "number" }], returns: "number" },
     "fetch": { params: [{ name: "input", type: "string | Request" }, { name: "init?", type: "RequestInit" }], returns: "Promise<Response>" },
   };
+  const BUILTIN_GLOBALS = { console: "Console", document: "Document", window: "Window", globalThis: "globalThis", Math: "Math", JSON: "JSON", Object: "ObjectConstructor", Array: "ArrayConstructor", String: "StringConstructor", Number: "NumberConstructor", Boolean: "BooleanConstructor", Date: "DateConstructor", RegExp: "RegExpConstructor", Promise: "PromiseConstructor", Map: "MapConstructor", Set: "SetConstructor", Error: "ErrorConstructor", localStorage: "Storage", sessionStorage: "Storage", location: "Location", navigator: "Navigator", history: "History", fetch: "function", setTimeout: "function", setInterval: "function" };
   const KIND_LABEL = { function: "FN", method: "FN", class: "CLASS", variable: "VAR", interface: "TYPE", type: "TYPE", constructor: "FN", import: "IMP" };
 
   function escHtml(s) {
@@ -224,17 +225,21 @@
         if (dm) defaultExportName = dm[1];
       }
 
-      m = body.match(/^(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*\(([^)]*)\)\s*(?::\s*([^{]+?))?\s*(?:\{|$)/);
+      m = body.match(/^\s*(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*\(([^)]*)\)\s*(?::\s*([^{]+?))?\s*(?:\{|$)/);
       if (m) {
         const doc = docAt(lineIndex);
         const name = m[1];
         const params = parseParams(m[2], doc);
         const returns = (m[3] || (doc && doc.returns && doc.returns.type) || "").trim();
         addSymbol({ name, kind: "function", line: lineIndex, ch: line.indexOf(name), params, returns, type: "function", doc, exported, defaultExport, signature: "function " + name + "(" + params.map((p) => p.name + (p.optional ? "?" : "") + (p.type ? ": " + p.type : "")).join(", ") + ")" + (returns ? ": " + returns : "") });
+        for (const param of params) {
+          const pn = param.name.replace(/^\.\.\./, "");
+          if (pn) addSymbol({ name: pn, kind: "variable", line: lineIndex, ch: line.indexOf(name), type: param.type, doc: { description: param.description || "", params: [], returns: null }, local: true, parent: name, exported: false, defaultExport: false, signature: pn + ": " + param.type });
+        }
         continue;
       }
 
-      m = body.match(/^class\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+([^{]+))?/);
+      m = body.match(/^\s*class\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+([^{]+))?/);
       if (m) {
         const doc = docAt(lineIndex);
         const className = m[1];
@@ -253,17 +258,21 @@
           const params = parseParams(mm[2], md);
           const returns = (mm[3] || (md && md.returns && md.returns.type) || "").trim();
           addSymbol({ name: mm[1], kind: "method", line: j, ch: lines[j].indexOf(mm[1]), params, returns, type: "method", doc: md, parent: className, exported: false, defaultExport: false });
+          for (const param of params) {
+            const pn = param.name.replace(/^\.\.\./, "");
+            if (pn) addSymbol({ name: pn, kind: "variable", line: j, ch: lines[j].indexOf(mm[1]), type: param.type, doc: { description: param.description || "", params: [], returns: null }, local: true, parent: mm[1], exported: false, defaultExport: false, signature: pn + ": " + param.type });
+          }
         }
         continue;
       }
 
-      m = body.match(/^(?:interface|type)\s+([A-Za-z_$][\w$]*)/);
+      m = body.match(/^\s*(?:interface|type)\s+([A-Za-z_$][\w$]*)/);
       if (m) {
         addSymbol({ name: m[1], kind: "type", line: lineIndex, ch: line.indexOf(m[1]), type: "type", doc: docAt(lineIndex), exported, defaultExport, signature: body.trim() });
         continue;
       }
 
-      m = body.match(/^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::\s*([^=]+?))?\s*=\s*(.*)$/);
+      m = body.match(/^\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::\s*([^=]+?))?\s*=\s*(.*)$/);
       if (m) {
         const name = m[1];
         const annotation = (m[2] || "").trim();
@@ -274,7 +283,11 @@
         if (arrow || fn) {
           const params = parseParams(arrow ? (arrow[1] || arrow[2] || "") : fn[1], doc);
           const returns = ((arrow ? "" : fn[2]) || (doc && doc.returns && doc.returns.type) || annotation).trim();
-          addSymbol({ name, kind: "function", line: lineIndex, ch: line.indexOf(name), params, returns, type: annotation || "function", doc, exported, defaultExport, declKind: m[0].startsWith("let") ? "let" : m[0].startsWith("var") ? "var" : "const", signature: name + "(" + params.map((p) => p.name + (p.optional ? "?" : "") + (p.type ? ": " + p.type : "")).join(", ") + ")" + (returns ? ": " + returns : "") });
+          addSymbol({ name, kind: "function", line: lineIndex, ch: line.indexOf(name), params, returns, type: annotation || "function", doc, exported, defaultExport, declKind: "const", signature: name + "(" + params.map((p) => p.name + (p.optional ? "?" : "") + (p.type ? ": " + p.type : "")).join(", ") + ")" + (returns ? ": " + returns : "") });
+          for (const param of params) {
+            const pn = param.name.replace(/^\.\.\./, "");
+            if (pn) addSymbol({ name: pn, kind: "variable", line: lineIndex, ch: line.indexOf(name), type: param.type, doc: { description: param.description || "", params: [], returns: null }, local: true, parent: name, exported: false, defaultExport: false, signature: pn + ": " + param.type });
+          }
         } else {
           const typ = annotation || inferType(rhs) || "any";
           addSymbol({ name, kind: "variable", line: lineIndex, ch: line.indexOf(name), type: typ, doc, exported, defaultExport, declKind: "const", signature: "const " + name + ": " + typ });
@@ -421,10 +434,24 @@
       } catch (e) { ctx.toast(e.message || String(e), true); }
     }
 
+    function builtinHoverAt(pos, word) {
+      const editor = cm();
+      if (!editor) return null;
+      const before = editor.getLine(pos.line).slice(0, pos.ch);
+      const obj = before.match(/([A-Za-z_$][\w$]*)\s*\.\s*$/);
+      const full = obj ? obj[1] + "." + word.name : word.name;
+      const sig = BUILTIN_SIGNATURES[full];
+      if (sig) return { name: full, kind: "function", params: sig.params, returns: sig.returns, type: "function", signature: full + "(" + sig.params.map((p) => p.name + (p.type ? ": " + p.type : "")).join(", ") + ")" + (sig.returns ? ": " + sig.returns : "") };
+      if (BUILTIN_GLOBALS[word.name]) {
+        const type = BUILTIN_GLOBALS[word.name];
+        return { name: word.name, kind: "variable", type, signature: word.name + ": " + type };
+      }
+      return null;
+    }
     function hoverCardFor(sym, rel) {
       const label = KIND_LABEL[sym.kind] || "SYM";
       const doc = sym.doc || {};
-      const meta = (rel || st().currentRel) + ":" + ((sym.line || 0) + 1);
+      const meta = rel ? (rel + ":" + ((sym.line || 0) + 1)) : "内置 JavaScript API";
       let html = '<div class="hover-title"><span class="hover-kind">' + escHtml(label) + '</span><span class="hover-name">' + escHtml(sym.name) + '</span></div>';
       html += '<div class="hover-sig">' + escHtml(sym.signature || signatureFor(sym)) + '</div>';
       if (doc.description) html += '<div class="hover-doc">' + escHtml(doc.description) + '</div>';
@@ -440,13 +467,18 @@
       const el = document.getElementById("hoverCard");
       if (el) el.hidden = true;
     }
+    function posFromMouse(editor, mouseEvent) {
+      const rect = editor.getWrapperElement().getBoundingClientRect();
+      return editor.coordsChar({ left: mouseEvent.clientX - rect.left, top: mouseEvent.clientY - rect.top }, "local");
+    }
     function showHover(mouseEvent) {
       const editor = cm();
       if (!editor || !mouseEvent) return;
       const card = document.getElementById("hoverCard");
       if (!card) return;
+      clearTimeout(hoverTimer);
       let pos;
-      try { pos = editor.coordsChar({ left: mouseEvent.clientX, top: mouseEvent.clientY }, "window"); } catch (e) { return; }
+      try { pos = posFromMouse(editor, mouseEvent); } catch (e) { return; }
       if (skipToken(pos)) { hideHover(); return; }
       const word = wordAtPos(editor, pos);
       if (!word) { hideHover(); return; }
@@ -459,6 +491,7 @@
           if (found) { sym = found; rel = r; break; }
         }
       }
+      if (!sym) { sym = builtinHoverAt(pos, word); rel = ""; }
       if (!sym) { hideHover(); return; }
       clearTimeout(hoverTimer);
       hoverTimer = setTimeout(() => {
@@ -472,7 +505,7 @@
         if (top + 180 > window.innerHeight - 12) top = Math.max(12, mouseEvent.clientY - 180);
         card.style.left = Math.max(8, left) + "px";
         card.style.top = Math.max(8, top) + "px";
-      }, 260);
+      }, 180);
     }
 
     function callContext() {
@@ -794,14 +827,19 @@
     function attachEditor(editor) {
       if (!editor) return;
       const wrapper = editor.getWrapperElement();
-      wrapper.addEventListener("mousemove", (event) => showHover(event));
+      const hoverHandler = (event) => showHover(event);
+      wrapper.addEventListener("mousemove", hoverHandler);
+      wrapper.addEventListener("mouseover", hoverHandler);
+      document.addEventListener("mousemove", (event) => {
+        if (event && event.target && event.target.closest && event.target.closest(".CodeMirror")) showHover(event);
+      });
       wrapper.addEventListener("mouseleave", hideHover);
       editor.on("scroll", hideHover);
       editor.on("mousedown", (ed, event) => {
         hideHover();
         if (!event.ctrlKey && !event.metaKey) return;
         try {
-          const pos = ed.coordsChar({ left: event.clientX, top: event.clientY }, "window");
+          const pos = posFromMouse(ed, event);
           const word = wordAtPos(ed, pos);
           if (!word) return;
           ed.setCursor(pos);
@@ -822,6 +860,8 @@
     }
 
     function bindUi() {
+      const hover = document.getElementById("hoverCard");
+      if (hover && hover.parentElement !== document.body) document.body.appendChild(hover);
       const actions = document.getElementById("actionsBtn");
       if (actions) actions.addEventListener("click", (event) => { event.stopPropagation(); showActionsMenu(); });
       document.addEventListener("click", (event) => { if (!event.target.closest || !event.target.closest("#actionsMenu")) closeActionsMenu(); });
