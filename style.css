@@ -278,3 +278,7 @@ html[data-js-theme="light"] .tb-btn.primary { color: #fff; }
 .icon-tool:disabled { opacity: .35; cursor: default; }
 
 html[data-shell="1"] #sidebar, html[data-shell="1"] .side-hint { display: none !important; }
+
+html[data-shell="1"] .theme-select { display: none !important; }
+
+html[data-shell="1"] .brand, html[data-shell="1"] .project-name { display: none !important; }

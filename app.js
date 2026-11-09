@@ -87,6 +87,11 @@
   }
   window.addEventListener("message", (event) => {
     const d = event.data || {};
+    if (d.type === "theme" && typeof d.theme === "string" && THEMES.has(d.theme)) applyTheme(d.theme);
+  });
+
+  window.addEventListener("message", (event) => {
+    const d = event.data || {};
     if (d.type !== "shell-host-result") return;
     const p = shellPending.get(d.requestId);
     if (!p) return;
