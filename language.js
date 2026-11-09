@@ -27,6 +27,93 @@
     "setTimeout": { params: [{ name: "handler", type: "function" }, { name: "timeout?", type: "number" }], returns: "number" },
     "fetch": { params: [{ name: "input", type: "string | Request" }, { name: "init?", type: "RequestInit" }], returns: "Promise<Response>" },
   };
+  const BUILTIN_MEMBERS = {
+    addEventListener: { params: [{ name: "type", type: "string" }, { name: "listener", type: "function" }, { name: "options?", type: "object" }], returns: "void" },
+    removeEventListener: { params: [{ name: "type", type: "string" }, { name: "listener", type: "function" }], returns: "void" },
+    dispatchEvent: { params: [{ name: "event", type: "Event" }], returns: "boolean" },
+    querySelector: { params: [{ name: "selectors", type: "string" }], returns: "Element | null" },
+    querySelectorAll: { params: [{ name: "selectors", type: "string" }], returns: "NodeList" },
+    getElementById: { params: [{ name: "id", type: "string" }], returns: "HTMLElement | null" },
+    getElementsByClassName: { params: [{ name: "names", type: "string" }], returns: "HTMLCollection" },
+    getElementsByTagName: { params: [{ name: "tagName", type: "string" }], returns: "HTMLCollection" },
+    createElement: { params: [{ name: "tagName", type: "string" }], returns: "HTMLElement" },
+    createTextNode: { params: [{ name: "text", type: "string" }], returns: "Text" },
+    appendChild: { params: [{ name: "node", type: "Node" }], returns: "Node" },
+    append: { params: [{ name: "...nodes", type: "Node | string" }], returns: "void" },
+    prepend: { params: [{ name: "...nodes", type: "Node | string" }], returns: "void" },
+    removeChild: { params: [{ name: "node", type: "Node" }], returns: "Node" },
+    insertBefore: { params: [{ name: "node", type: "Node" }, { name: "child", type: "Node | null" }], returns: "Node" },
+    remove: { params: [], returns: "void" },
+    setAttribute: { params: [{ name: "name", type: "string" }, { name: "value", type: "string" }], returns: "void" },
+    getAttribute: { params: [{ name: "name", type: "string" }], returns: "string | null" },
+    removeAttribute: { params: [{ name: "name", type: "string" }], returns: "void" },
+    classList: { params: [], returns: "DOMTokenList" },
+    closest: { params: [{ name: "selectors", type: "string" }], returns: "Element | null" },
+    matches: { params: [{ name: "selectors", type: "string" }], returns: "boolean" },
+    focus: { params: [], returns: "void" },
+    blur: { params: [], returns: "void" },
+    click: { params: [], returns: "void" },
+    map: { params: [{ name: "callback", type: "function" }], returns: "array" },
+    filter: { params: [{ name: "callback", type: "function" }], returns: "array" },
+    forEach: { params: [{ name: "callback", type: "function" }], returns: "void" },
+    reduce: { params: [{ name: "callback", type: "function" }, { name: "initial?", type: "any" }], returns: "any" },
+    find: { params: [{ name: "callback", type: "function" }], returns: "any" },
+    findIndex: { params: [{ name: "callback", type: "function" }], returns: "number" },
+    some: { params: [{ name: "callback", type: "function" }], returns: "boolean" },
+    every: { params: [{ name: "callback", type: "function" }], returns: "boolean" },
+    includes: { params: [{ name: "value", type: "any" }], returns: "boolean" },
+    indexOf: { params: [{ name: "value", type: "any" }], returns: "number" },
+    lastIndexOf: { params: [{ name: "value", type: "any" }], returns: "number" },
+    push: { params: [{ name: "...items", type: "any" }], returns: "number" },
+    pop: { params: [], returns: "any" },
+    shift: { params: [], returns: "any" },
+    unshift: { params: [{ name: "...items", type: "any" }], returns: "number" },
+    slice: { params: [{ name: "start?", type: "number" }, { name: "end?", type: "number" }], returns: "array | string" },
+    splice: { params: [{ name: "start", type: "number" }, { name: "deleteCount?", type: "number" }, { name: "...items", type: "any" }], returns: "any[]" },
+    join: { params: [{ name: "separator?", type: "string" }], returns: "string" },
+    sort: { params: [{ name: "compare?", type: "function" }], returns: "array" },
+    reverse: { params: [], returns: "array" },
+    concat: { params: [{ name: "...items", type: "any" }], returns: "array" },
+    flat: { params: [{ name: "depth?", type: "number" }], returns: "array" },
+    flatMap: { params: [{ name: "callback", type: "function" }], returns: "array" },
+    split: { params: [{ name: "separator", type: "string | RegExp" }], returns: "string[]" },
+    replace: { params: [{ name: "pattern", type: "string | RegExp" }, { name: "replacement", type: "string | function" }], returns: "string" },
+    replaceAll: { params: [{ name: "pattern", type: "string | RegExp" }, { name: "replacement", type: "string" }], returns: "string" },
+    startsWith: { params: [{ name: "search", type: "string" }], returns: "boolean" },
+    endsWith: { params: [{ name: "search", type: "string" }], returns: "boolean" },
+    trim: { params: [], returns: "string" },
+    toUpperCase: { params: [], returns: "string" },
+    toLowerCase: { params: [], returns: "string" },
+    padStart: { params: [{ name: "length", type: "number" }, { name: "fill?", type: "string" }], returns: "string" },
+    padEnd: { params: [{ name: "length", type: "number" }, { name: "fill?", type: "string" }], returns: "string" },
+    substring: { params: [{ name: "start", type: "number" }, { name: "end?", type: "number" }], returns: "string" },
+    then: { params: [{ name: "onFulfilled", type: "function" }, { name: "onRejected?", type: "function" }], returns: "Promise" },
+    catch: { params: [{ name: "onRejected", type: "function" }], returns: "Promise" },
+    finally: { params: [{ name: "onFinally", type: "function" }], returns: "Promise" },
+    getItem: { params: [{ name: "key", type: "string" }], returns: "string | null" },
+    setItem: { params: [{ name: "key", type: "string" }, { name: "value", type: "string" }], returns: "void" },
+    removeItem: { params: [{ name: "key", type: "string" }], returns: "void" },
+    clear: { params: [], returns: "void" },
+    log: { params: [{ name: "...data", type: "any" }], returns: "void" },
+    warn: { params: [{ name: "...data", type: "any" }], returns: "void" },
+    error: { params: [{ name: "...data", type: "any" }], returns: "void" },
+    info: { params: [{ name: "...data", type: "any" }], returns: "void" },
+    debug: { params: [{ name: "...data", type: "any" }], returns: "void" },
+    parse: { params: [{ name: "text", type: "string" }], returns: "any" },
+    stringify: { params: [{ name: "value", type: "any" }, { name: "replacer?", type: "any" }, { name: "space?", type: "string | number" }], returns: "string" },
+    max: { params: [{ name: "...values", type: "number" }], returns: "number" },
+    min: { params: [{ name: "...values", type: "number" }], returns: "number" },
+    round: { params: [{ name: "x", type: "number" }], returns: "number" },
+    floor: { params: [{ name: "x", type: "number" }], returns: "number" },
+    ceil: { params: [{ name: "x", type: "number" }], returns: "number" },
+    random: { params: [], returns: "number" },
+    keys: { params: [{ name: "obj", type: "object" }], returns: "string[]" },
+    values: { params: [{ name: "obj", type: "object" }], returns: "any[]" },
+    entries: { params: [{ name: "obj", type: "object" }], returns: "Iterable" },
+    assign: { params: [{ name: "target", type: "object" }, { name: "...sources", type: "object" }], returns: "object" },
+    freeze: { params: [{ name: "obj", type: "object" }], returns: "object" },
+  };
+  const JS_RESERVED = new Set(["break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "export", "extends", "finally", "for", "function", "if", "import", "in", "instanceof", "let", "new", "return", "super", "switch", "this", "throw", "try", "typeof", "var", "void", "while", "with", "yield", "async", "await", "of", "from", "as", "get", "set", "static", "true", "false", "null", "undefined"]);
   const BUILTIN_GLOBALS = { console: "Console", document: "Document", window: "Window", globalThis: "globalThis", Math: "Math", JSON: "JSON", Object: "ObjectConstructor", Array: "ArrayConstructor", String: "StringConstructor", Number: "NumberConstructor", Boolean: "BooleanConstructor", Date: "DateConstructor", RegExp: "RegExpConstructor", Promise: "PromiseConstructor", Map: "MapConstructor", Set: "SetConstructor", Error: "ErrorConstructor", localStorage: "Storage", sessionStorage: "Storage", location: "Location", navigator: "Navigator", history: "History", fetch: "function", setTimeout: "function", setInterval: "function" };
   const KIND_LABEL = { function: "FN", method: "FN", class: "CLASS", variable: "VAR", interface: "TYPE", type: "TYPE", constructor: "FN", import: "IMP" };
 
@@ -440,18 +527,21 @@
       const before = editor.getLine(pos.line).slice(0, pos.ch);
       const obj = before.match(/([A-Za-z_$][\w$]*)\s*\.\s*$/);
       const full = obj ? obj[1] + "." + word.name : word.name;
-      const sig = BUILTIN_SIGNATURES[full];
-      if (sig) return { name: full, kind: "function", params: sig.params, returns: sig.returns, type: "function", signature: full + "(" + sig.params.map((p) => p.name + (p.type ? ": " + p.type : "")).join(", ") + ")" + (sig.returns ? ": " + sig.returns : "") };
+      const sig = BUILTIN_SIGNATURES[full] || (obj ? BUILTIN_MEMBERS[word.name] : BUILTIN_MEMBERS[word.name]);
+      if (sig) {
+        const display = obj ? obj[1] + "." + word.name : word.name;
+        return { name: display, kind: "method", params: sig.params, returns: sig.returns, type: "function", _builtin: true, signature: display + "(" + sig.params.map((p) => p.name + (p.type ? ": " + p.type : "")).join(", ") + ")" + (sig.returns ? ": " + sig.returns : "") };
+      }
       if (BUILTIN_GLOBALS[word.name]) {
         const type = BUILTIN_GLOBALS[word.name];
-        return { name: word.name, kind: "variable", type, signature: word.name + ": " + type };
+        return { name: word.name, kind: "variable", type, _builtin: true, signature: word.name + ": " + type };
       }
       return null;
     }
     function hoverCardFor(sym, rel) {
       const label = KIND_LABEL[sym.kind] || "SYM";
       const doc = sym.doc || {};
-      const meta = rel ? (rel + ":" + ((sym.line || 0) + 1)) : "内置 JavaScript API";
+      const meta = rel ? (rel + ":" + ((sym.line || 0) + 1)) : (sym._unknown ? "当前文件未识别" : sym._import ? "导入符号" : "内置 JavaScript API");
       let html = '<div class="hover-title"><span class="hover-kind">' + escHtml(label) + '</span><span class="hover-name">' + escHtml(sym.name) + '</span></div>';
       html += '<div class="hover-sig">' + escHtml(sym.signature || signatureFor(sym)) + '</div>';
       if (doc.description) html += '<div class="hover-doc">' + escHtml(doc.description) + '</div>';
@@ -467,45 +557,32 @@
       const el = document.getElementById("hoverCard");
       if (el) el.hidden = true;
     }
+    function textOffsetInLine(lineEl, container, offset) {
+      try {
+        const range = document.createRange();
+        range.setStart(lineEl, 0);
+        range.setEnd(container, offset);
+        return range.toString().length;
+      } catch { return -1; }
+    }
     function posFromMouse(editor, mouseEvent) {
       try {
-        const target = mouseEvent.target;
-        const lineEl = target && target.closest ? target.closest(".CodeMirror-line") : null;
-        if (lineEl) {
-          const codeEl = lineEl.parentElement;
-          const lines = codeEl ? Array.from(codeEl.children).filter((x) => x.classList && x.classList.contains("CodeMirror-line")) : [];
-          const idx = lines.indexOf(lineEl);
-          const viewport = typeof editor.getViewport === "function" ? editor.getViewport() : { from: 0 };
-          if (idx >= 0) {
-            const lineNo = viewport.from + idx;
-            let ch = -1;
-            const range = document.caretRangeFromPoint ? document.caretRangeFromPoint(mouseEvent.clientX, mouseEvent.clientY) : null;
-            if (range && lineEl.contains(range.startContainer)) {
-              const walker = document.createTreeWalker(lineEl, NodeFilter.SHOW_TEXT);
-              let pos = 0;
-              let node = null;
-              while ((node = walker.nextNode()) && node !== range.startContainer) pos += (node.nodeValue || "").length;
-              if (node === range.startContainer) ch = pos + range.startOffset;
-            }
-            if (ch < 0 && target && lineEl.contains(target) && target.textContent) {
-              let base = 0;
-              const walker = document.createTreeWalker(lineEl, NodeFilter.SHOW_TEXT);
-              let node = null;
-              while ((node = walker.nextNode()) && node !== target) base += (node.nodeValue || "").length;
-              const rect = target.getBoundingClientRect();
-              const textLength = target.textContent.length || 1;
-              const ratio = Math.max(0, Math.min(0.999, (mouseEvent.clientX - rect.left) / Math.max(1, rect.width)));
-              ch = base + Math.floor(ratio * textLength);
-            }
-            if (ch >= 0) {
-              const word = wordAtPos(editor, { line: lineNo, ch });
-              const expected = String(target.textContent || "");
-              if (!expected || !word || expected.includes(word.name) || word.name.includes(expected)) return { line: lineNo, ch };
-            }
-          }
-        }
+        const line = editor.lineAtHeight(mouseEvent.clientY, "window");
+        const pos = editor.coordsChar({ left: mouseEvent.clientX, top: mouseEvent.clientY }, "window");
+        if (typeof line === "number" && line >= 0) return { line: line, ch: pos.ch };
       } catch { }
       return editor.coordsChar({ left: mouseEvent.clientX, top: mouseEvent.clientY }, "window");
+    }
+    function wordNear(editor, pos) {
+      let word = wordAtPos(editor, pos);
+      if (word) return word;
+      for (const delta of [-1, 1, -2, 2, -3, 3]) {
+        const ch = pos.ch + delta;
+        if (ch < 0 || ch > editor.getLine(pos.line).length) continue;
+        word = wordAtPos(editor, { line: pos.line, ch });
+        if (word) return word;
+      }
+      return null;
     }
     function showHover(mouseEvent) {
       const editor = cm();
@@ -516,9 +593,10 @@
       let pos;
       try { pos = posFromMouse(editor, mouseEvent); } catch (e) { return; }
       if (skipToken(pos)) { hideHover(); return; }
-      const word = wordAtPos(editor, pos);
+      const word = wordNear(editor, pos);
       if (!word) { hideHover(); return; }
-      const local = currentAnalysis().symbols.find((s) => s.name === word.name);
+      const analysis = currentAnalysis();
+      const local = analysis.symbols.find((s) => s.name === word.name);
       let sym = local;
       let rel = st().currentRel;
       if (!sym && projectLoaded) {
@@ -528,6 +606,15 @@
         }
       }
       if (!sym) { sym = builtinHoverAt(pos, word); rel = ""; }
+      if (!sym && analysis.imports[word.name]) {
+        const imp = analysis.imports[word.name];
+        sym = { name: word.name, kind: "import", type: "import", _import: true, signature: "import " + (imp.default ? word.name : "{ " + (imp.imported || word.name) + " }") + " from \"" + imp.source + "\"", doc: { description: "从 " + imp.source + " 导入的符号" } };
+        rel = "";
+      }
+      if (!sym && !JS_RESERVED.has(word.name)) {
+        sym = { name: word.name, kind: "variable", type: "未知", _unknown: true, signature: word.name + ": 未知", doc: { description: "当前文件没有找到它的声明；可能是外部全局、未解析的局部变量或对象成员。" } };
+        rel = "";
+      }
       if (!sym) { hideHover(); return; }
       clearTimeout(hoverTimer);
       hoverTimer = setTimeout(() => {

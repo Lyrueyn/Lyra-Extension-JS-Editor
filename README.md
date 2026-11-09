@@ -99,3 +99,9 @@ JavaScript 编辑器是「编辑器」扩展的 editor-plugin 插件。
 
 - 修复 shell iframe 中鼠标坐标与编辑器字符位置偏移：改用 DOM 光标位置（caretRangeFromPoint）定位并校验，悬停现在准确显示鼠标下的符号。
 - 悬停覆盖函数参数、局部变量、内置全局对象和 console.log 等内置 API。
+
+## 1.4.3
+
+- 重新实现悬停位置定位：用 lineAtHeight 取行、coordsChar 取列，修复中间字符没有提示/提示错符号。
+- 悬停覆盖任何标识符：未找到声明时也给基础提示，不再完全无声。
+- addEventListener、map、filter、querySelector 等常见内置成员支持通用悬停签名。
