@@ -807,14 +807,14 @@
     if (/\.\s*$/.test(before)) return true;
     if (/\.\s*[A-Za-z_$][\w$]*$/.test(before)) return true;
     const word = (before.match(/[A-Za-z_$][\w$]*$/) || [""])[0];
-    return word.length >= 2;
+    return word.length >= 1;
   }
 
   function scheduleJsHint(cm) {
     clearTimeout(cm._jsHintTimer);
     cm._jsHintTimer = setTimeout(() => {
       if (shouldAutoHint(cm)) showJsHint(cm);
-    }, 180);
+    }, 120);
   }
 
   function initEditor() {
