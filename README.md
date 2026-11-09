@@ -61,3 +61,7 @@ JavaScript 编辑器是「编辑器」扩展的 editor-plugin 插件。
 - JavaScript 自动补全：关键字、全局对象、当前文件函数/类/变量、DOM/Console 等成员、代码片段。
 - 自动弹出补全 + Ctrl+Space 手动补全；成员补全支持 console. / document. / Math. 等。
 - 补全列表带类型徽标和详细信息，跟随编辑器主题。
+
+## 1.3.1
+
+- 工具栏新增「补全」按钮（等同 Ctrl+Space）。

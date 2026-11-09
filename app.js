@@ -872,6 +872,7 @@
     $("redoBtn").addEventListener("click", () => { cm.redo(); cm.focus(); updateHistoryButtons(); });
     $("foldAllBtn").addEventListener("click", () => { try { cm.execCommand("foldAll"); } catch (e) { toast("折叠失败：" + e.message, true); } });
     $("unfoldAllBtn").addEventListener("click", () => { try { cm.execCommand("unfoldAll"); } catch (e) { toast("展开失败：" + e.message, true); } });
+    $("hintBtn").addEventListener("click", () => { cm.focus(); showJsHint(cm); });
     $("findBtn").addEventListener("click", () => { if (state.find.open) closeFind(); else openFind(false); });
     $("findClose").addEventListener("click", closeFind);
     $("findPrev").addEventListener("click", () => findNext(-1));
