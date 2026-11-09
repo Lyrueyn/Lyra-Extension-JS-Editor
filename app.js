@@ -23,6 +23,7 @@
     suppressChange: false,
     outlineTimer: 0,
     autoHintCooldown: 0,
+    hintRefresh: false,
     hintSymbolsValue: null,
     hintSymbols: [],
     autoSaveTimer: 0,
@@ -810,11 +811,11 @@
     return word.length >= 1;
   }
 
-  function scheduleJsHint(cm) {
+  function scheduleJsHint(cm, delay) {
     clearTimeout(cm._jsHintTimer);
     cm._jsHintTimer = setTimeout(() => {
       if (shouldAutoHint(cm)) showJsHint(cm);
-    }, 120);
+    }, delay || 120);
   }
 
   function initEditor() {
@@ -861,11 +862,23 @@
     cm.on("inputRead", (editor, change) => {
       if (state.suppressChange) return;
       const typed = change && change.text ? change.text.join("") : "";
-      if (!/[\w$\.]$/.test(typed)) return;
+      if (!/[\w$\.]$/.test(typed)) {
+        if (editor.state.completionActive) editor.closeHint();
+        return;
+      }
+      if (editor.state.completionActive) {
+        // 补全弹窗不会自动按新前缀重新过滤，输入新字符时重建一次候选
+        state.hintRefresh = true;
+        try { editor.closeHint(); } catch { }
+        setTimeout(() => { state.hintRefresh = false; }, 0);
+        scheduleJsHint(editor, 40);
+        return;
+      }
       clearTimeout(editor._jsHintTimer);
       scheduleJsHint(editor);
     });
     cm.on("endCompletion", () => {
+      if (state.hintRefresh) return;
       state.autoHintCooldown = Date.now() + 260;
     });
     updateHistoryButtons();
