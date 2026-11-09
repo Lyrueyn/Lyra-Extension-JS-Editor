@@ -4,6 +4,8 @@
   const host = window.chrome && window.chrome.webview ? window.chrome.webview : null;
   const params = new URLSearchParams(location.search);
   const JS_EXT = new Set([".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"]);
+  const THEME_KEY = "lyra.js.editor.theme";
+  const THEMES = new Set(["javascript", "lyra", "violet", "emerald", "sunset", "sakura", "light"]);
   const state = {
     projectName: params.get("projectName") || "JS 项目",
     root: "",
@@ -17,9 +19,23 @@
     pending: new Map(),
     suppressChange: false,
     outlineTimer: 0,
+    autoSaveTimer: 0,
+    saveInFlight: false,
+    saveQueued: false,
+    running: false,
     runSeq: 0,
+    runStartedAt: 0,
+    find: { matches: [], index: -1, query: "", caseSensitive: false, open: false },
   };
   let cm = null;
+
+  function setupFoldHelpers() {
+    try {
+      const brace = window.CodeMirror && CodeMirror.fold && CodeMirror.fold.brace;
+      if (!brace) return;
+      ["javascript", "json", "htmlmixed", "xml", "css"].forEach((mode) => CodeMirror.registerHelper("fold", mode, brace));
+    } catch { }
+  }
 
   function bytesToBase64(bytes) {
     let bin = "";
@@ -45,14 +61,10 @@
     const i = s.lastIndexOf("/");
     return i >= 0 ? s.slice(i + 1) : s;
   }
-  function dirOf(rel) {
-    const s = String(rel || "");
-    const i = s.lastIndexOf("/");
-    return i >= 0 ? s.slice(0, i) : "";
-  }
   function classify(rel) {
     const ext = extOf(rel);
-    if (JS_EXT.has(ext) || ext === ".json") return ext === ".json" ? "json" : "js";
+    if (JS_EXT.has(ext)) return "js";
+    if (ext === ".json") return "json";
     if (ext === ".html" || ext === ".htm") return "html";
     if (ext === ".css") return "css";
     return "other";
@@ -95,10 +107,34 @@
   function setStatus(text) { $("saveState").textContent = text || ""; }
   function showError(err) { const m = String(err && err.message ? err.message : err); setStatus("错误：" + m); toast(m, true); }
 
+  function fullPath(rel) {
+    const root = String(state.root || "").replace(/[\\/]+$/, "");
+    if (!root) return String(rel || "");
+    const sep = root.includes("\\") ? "\\" : "/";
+    return root + sep + String(rel || "").replace(/\//g, sep);
+  }
+
+  function applyTheme(name) {
+    const next = THEMES.has(name) ? name : "javascript";
+    document.documentElement.dataset.jsTheme = next;
+    $("themeSelect").value = next;
+    try { localStorage.setItem(THEME_KEY, next); } catch { }
+    if (cm) setTimeout(() => cm.refresh(), 20);
+  }
+
+  function initTheme() {
+    let saved = "javascript";
+    try { saved = localStorage.getItem(THEME_KEY) || "javascript"; } catch { }
+    applyTheme(saved);
+  }
+
   function languageFor(rel) {
     const kind = classify(rel);
     if (kind === "json") return { mode: { name: "javascript", json: true }, badge: "JSON" };
-    if (kind === "js") return { mode: { name: "javascript" }, badge: JS_EXT.has(extOf(rel)) && (extOf(rel) === ".ts" || extOf(rel) === ".tsx") ? "TypeScript" : "JavaScript" };
+    if (kind === "js") {
+      const ext = extOf(rel);
+      return { mode: { name: "javascript" }, badge: ext === ".ts" || ext === ".tsx" ? "TypeScript" : "JavaScript" };
+    }
     return { mode: null, badge: "Text" };
   }
 
@@ -194,10 +230,7 @@
       toast("已交给 HTML 编辑器插件打开：" + rel);
       return;
     }
-    if (kind === "css") {
-      toast("还没有 CSS 编辑器插件，暂时不能编辑 " + rel, true);
-      return;
-    }
+    if (kind === "css") { toast("还没有 CSS 编辑器插件，暂时不能编辑 " + rel, true); return; }
     toast("没有适配这个文件类型的编辑器插件：" + rel, true);
   }
 
@@ -206,7 +239,7 @@
     $("currentFile").textContent = state.currentRel || "未打开文件";
     $("currentFile").classList.toggle("dirty", state.dirty);
     $("dirtyBadge").hidden = !state.dirty;
-    $("statusFile").textContent = state.currentRel || "";
+    $("statusFile").textContent = state.currentRel ? fullPath(state.currentRel) : "";
     const lang = languageFor(state.currentRel);
     $("languageBadge").textContent = lang.badge;
     if (cm) {
@@ -215,30 +248,66 @@
     }
   }
 
+  function updateHistoryButtons() {
+    if (!cm) return;
+    const h = cm.historySize();
+    $("undoBtn").disabled = !h.undo;
+    $("redoBtn").disabled = !h.redo;
+  }
+
   function markDirty() {
     if (!state.currentRel) return;
     state.dirty = cm.getValue() !== state.cleanValue;
     $("dirtyBadge").hidden = !state.dirty;
     $("currentFile").classList.toggle("dirty", state.dirty);
-    setStatus(state.dirty ? "未保存" : "已保存");
+    setStatus(state.dirty ? "编辑中…" : "已保存");
+    scheduleAutoSave();
     scheduleOutline();
+    updateHistoryButtons();
   }
 
-  async function saveNow() {
+  function scheduleAutoSave() {
+    clearTimeout(state.autoSaveTimer);
+    if (!state.currentRel) return;
+    state.autoSaveTimer = setTimeout(() => saveNow({ auto: true }).catch((e) => setStatus("自动保存失败：" + e.message)), 900);
+  }
+
+  async function saveNow(opts) {
+    opts = opts || {};
     if (!state.currentRel || !cm) return;
-    if (!state.dirty) { setStatus("已保存"); return; }
+    if (!state.dirty) { if (!opts.auto) setStatus("已保存"); return; }
+    if (state.saveInFlight) { state.saveQueued = true; return; }
+    state.saveInFlight = true;
+    const rel = state.currentRel;
     const value = cm.getValue();
-    await hostCall("host.workspace.save", { path: state.currentRel, data: encodeText(value) });
-    state.cleanValue = value;
-    state.dirty = false;
-    $("dirtyBadge").hidden = true;
-    $("currentFile").classList.remove("dirty");
-    setStatus("已保存");
+    setStatus(opts.auto ? "自动保存中…" : "保存中…");
+    try {
+      await hostCall("host.workspace.save", { path: rel, data: encodeText(value) });
+      if (state.currentRel === rel) {
+        state.cleanValue = value;
+        state.dirty = cm.getValue() !== value;
+        $("dirtyBadge").hidden = !state.dirty;
+        $("currentFile").classList.toggle("dirty", state.dirty);
+        const stamp = new Date().toTimeString().slice(0, 8);
+        if (opts.auto) { setStatus("已自动保存 " + stamp); $("statusSave").textContent = "自动保存 " + stamp; }
+        else { setStatus("已保存 " + stamp); $("statusSave").textContent = "已保存 " + stamp; }
+      }
+    } catch (e) {
+      setStatus("保存失败");
+      throw e;
+    } finally {
+      state.saveInFlight = false;
+      if (state.saveQueued) {
+        state.saveQueued = false;
+        if (state.dirty) scheduleAutoSave();
+      }
+    }
   }
 
   async function switchFile(rel) {
     if (!rel || rel === state.currentRel) return;
-    if (state.dirty) { try { await saveNow(); } catch (e) { toast("切换文件前保存失败：" + e.message, true); return; } }
+    clearTimeout(state.autoSaveTimer);
+    if (state.dirty) { try { await saveNow({ silent: true }); } catch (e) { toast("切换文件前保存失败：" + e.message, true); return; } }
     const res = await hostCall("host.workspace.load", { path: rel });
     const text = decodeText(res.data || "");
     state.currentRel = rel;
@@ -256,6 +325,7 @@
     renderTree();
     updateChrome();
     renderOutline();
+    updateHistoryButtons();
     setStatus("已加载");
   }
 
@@ -289,6 +359,11 @@
     const lines = String(code || "").split("\n");
     const out = [];
     const seen = new Set();
+    function add(name, kind, index) {
+      if (!name || seen.has(name)) return;
+      seen.add(name);
+      out.push({ name, kind, line: index + 1 });
+    }
     lines.forEach((line, index) => {
       let m;
       m = line.match(/^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/);
@@ -302,11 +377,6 @@
       m = line.match(/^\s{2,}(?:async\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{/);
       if (m && !["if", "for", "while", "switch", "catch"].includes(m[1])) add(m[1], "method", index);
     });
-    function add(name, kind, index) {
-      if (!name || seen.has(name)) return;
-      seen.add(name);
-      out.push({ name, kind, line: index + 1 });
-    }
     return out.slice(0, 200);
   }
 
@@ -345,12 +415,12 @@
     state.outlineTimer = setTimeout(renderOutline, 250);
   }
 
-  function appendConsole(level, args) {
+  function appendConsole(level, args, extraClass) {
     const out = $("consoleOutput");
     const empty = out.querySelector(".console-empty");
     if (empty) empty.remove();
     const line = document.createElement("div");
-    line.className = "console-line " + (level || "log");
+    line.className = "console-line " + (level || "log") + (extraClass ? " " + extraClass : "");
     const lv = document.createElement("span");
     lv.className = "console-level";
     lv.textContent = (level || "log").toUpperCase();
@@ -362,53 +432,199 @@
     out.scrollTop = out.scrollHeight;
   }
 
+  function appendRunSeparator() {
+    const out = $("consoleOutput");
+    if (!out.querySelector(".console-line")) return;
+    const sep = document.createElement("div");
+    sep.className = "console-run-sep";
+    out.appendChild(sep);
+    out.scrollTop = out.scrollHeight;
+  }
+
   function clearConsole() {
     $("consoleOutput").innerHTML = '<div class="console-empty">点击「运行文件」或「运行选中」执行 JavaScript，console.log 会输出到这里。</div>';
     $("statusRun").textContent = "";
   }
 
-  function buildRunner(code) {
-    const safeCode = String(code || "").replace(/<\/script/gi, "<\\/script");
-    const hooks = [
-      "var __send=function(level,args){try{parent.postMessage({type:'js-run-console',level:level,args:args.map(function(v){try{if(v instanceof Error)return v.stack||v.message;if(typeof v==='object')return JSON.stringify(v);return String(v);}catch(e){return String(v);}})} ,'*');}catch(e){}};",
-      "['log','info','warn','error','debug'].forEach(function(level){var orig=console[level];console[level]=function(){__send(level,Array.prototype.slice.call(arguments));try{if(orig)orig.apply(console,arguments);}catch(e){}};});",
-      "window.addEventListener('error',function(e){__send('error',[e.message+(e.lineno?(' (line '+e.lineno+')'):'')]);});",
-      "window.addEventListener('unhandledrejection',function(e){__send('error',['Unhandled rejection: '+String(e.reason)]);});",
-    ].join("\n");
-    return "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body><script>\n(function(){\n" +
-      hooks + "\ntry {\n" + safeCode + "\n} catch (e) { __send('error', [e && e.stack ? e.stack : String(e)]); }\n})();\n<\/script></body></html>";
+  function setRunUi(running) {
+    const btn = $("runBtn");
+    btn.classList.toggle("running", running);
+    btn.textContent = running ? "■ 停止运行" : "▶ 运行文件";
+    $("runBadge").hidden = !running;
+    $("statusRun").textContent = running ? "运行中…" : "";
   }
 
-  function executeSnippet(code, label) {
-    $("consoleOutput").querySelectorAll(".console-empty").forEach((n) => n.remove());
+  function buildRunner(code, runId) {
+    const safeCode = String(code || "").replace(/<\/script/gi, "<\\/script");
+    const hooks = [
+      "var __runId=" + Number(runId) + ";",
+      "var __hadError=false;",
+      "var __send=function(level,args){try{parent.postMessage({type:'js-run-console',runId:__runId,level:level,args:args.map(function(v){try{if(v instanceof Error)return v.stack||v.message;if(typeof v==='object')return JSON.stringify(v);return String(v);}catch(e){return String(v);}})} ,'*');}catch(e){}};",
+      "['log','info','warn','error','debug'].forEach(function(level){var orig=console[level];console[level]=function(){__send(level,Array.prototype.slice.call(arguments));try{if(orig)orig.apply(console,arguments);}catch(e){}};});",
+      "window.addEventListener('error',function(e){__hadError=true;__send('error',[e.message+(e.lineno?(' (line '+e.lineno+')'):'')]);});",
+      "window.addEventListener('unhandledrejection',function(e){__hadError=true;__send('error',['Unhandled rejection: '+String(e.reason)]);});",
+    ].join("\n");
+    const done = "setTimeout(function(){parent.postMessage({type:'js-run-done',runId:__runId,hadError:__hadError},'*');},0);";
+    return "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body><script>\n(function(){\n" +
+      hooks + "\ntry {\n" + safeCode + "\n} catch (e) { __hadError=true; __send('error', [e && e.stack ? e.stack : String(e)]); }\n" + done + "\n})();\n<\/script></body></html>";
+  }
+
+  function startRun(label, code) {
+    if (state.running) stopRun();
+    appendRunSeparator();
     state.runSeq += 1;
-    const seq = state.runSeq;
-    appendConsole("info", ["▶ " + label]);
-    $("statusRun").textContent = "运行中";
-    try { $("runFrame").srcdoc = buildRunner(code); }
-    catch (e) { appendConsole("error", [String(e && e.message ? e.message : e)]); }
-    setTimeout(() => { if (seq === state.runSeq) { $("statusRun").textContent = ""; } }, 600);
+    state.running = true;
+    state.runStartedAt = Date.now();
+    appendConsole("info", ["▶ " + label + "  ·  " + fullPath(state.currentRel)], "run-start");
+    setRunUi(true);
+    try {
+      $("runFrame").srcdoc = buildRunner(code, state.runSeq);
+    } catch (e) {
+      appendConsole("error", [String(e && e.message ? e.message : e)]);
+      state.running = false;
+      setRunUi(false);
+    }
+  }
+
+  function endRun(hadError) {
+    if (!state.running) return;
+    state.running = false;
+    const ms = Math.max(0, Date.now() - state.runStartedAt);
+    appendConsole(hadError ? "error" : "info", [(hadError ? "✕ 运行结束（有错误）" : "✓ 运行结束") + "  ·  " + ms + " ms"], "run-done");
+    setRunUi(false);
+  }
+
+  function stopRun() {
+    if (!state.running) return;
+    state.running = false;
+    state.runSeq += 1;
+    $("runFrame").srcdoc = "";
+    appendConsole("error", ["■ 已停止运行"], "run-stop");
+    setRunUi(false);
   }
 
   function runFile() {
     if (!cm || !state.currentRel) { toast("先打开一个 .js 文件", true); return; }
-    executeSnippet(cm.getValue(), "运行文件 " + state.currentRel);
+    startRun("运行文件", cm.getValue());
   }
 
   function runSelection() {
     if (!cm) return;
     const code = cm.getSelection();
     if (!code || !code.trim()) { toast("先在编辑器里选中一段 JavaScript", true); cm.focus(); return; }
-    executeSnippet(code, "运行选中代码");
+    startRun("运行选中代码", code);
   }
 
   function runRepl(expression) {
     const expr = String(expression || "").trim();
     if (!expr) return;
-    appendConsole("info", ["> " + expr]);
     const code = "try { var __r = (" + expr + "); __send('log', [typeof __r === 'object' ? JSON.stringify(__r) : String(__r)]); } catch (__e) { __send('error', [__e && __e.stack ? __e.stack : String(__e)]); }";
-    try { $("runFrame").srcdoc = buildRunner(code); }
-    catch (e) { appendConsole("error", [String(e && e.message ? e.message : e)]); }
+    startRun("REPL  " + expr, code);
+  }
+
+  function findOptions() { return { query: $("findInput").value, caseSensitive: $("findCase").checked }; }
+
+  function rebuildFindMatches(preserveIndex) {
+    const opts = findOptions();
+    state.find.query = opts.query;
+    state.find.caseSensitive = opts.caseSensitive;
+    state.find.matches = [];
+    $("findCount").textContent = "0/0";
+    if (!opts.query) return;
+    const text = cm.getValue();
+    const hay = opts.caseSensitive ? text : text.toLowerCase();
+    const needle = opts.caseSensitive ? opts.query : opts.query.toLowerCase();
+    if (!needle) return;
+    let at = 0;
+    while (at <= hay.length) {
+      const idx = hay.indexOf(needle, at);
+      if (idx < 0) break;
+      state.find.matches.push({ from: idx, to: idx + needle.length });
+      at = idx + Math.max(1, needle.length);
+      if (state.find.matches.length >= 5000) break;
+    }
+    if (!preserveIndex) state.find.index = -1;
+    if (state.find.index >= state.find.matches.length) state.find.index = state.find.matches.length - 1;
+    updateFindCount();
+  }
+
+  function updateFindCount() {
+    const n = state.find.matches.length;
+    const i = state.find.index;
+    $("findCount").textContent = n ? ((i >= 0 ? i + 1 : 0) + "/" + n) : "0/0";
+  }
+
+  function showFindMatch(index) {
+    if (!state.find.matches.length) { updateFindCount(); return; }
+    state.find.index = index;
+    const m = state.find.matches[index];
+    cm.setSelection(cm.posFromIndex(m.from), cm.posFromIndex(m.to), { scroll: true });
+    cm.focus();
+    updateFindCount();
+  }
+
+  function findNext(dir) {
+    if (!state.find.query) rebuildFindMatches(false);
+    if (!state.find.matches.length) { toast("没有找到：" + ($("findInput").value || ""), true); return; }
+    let next = state.find.index + (dir || 1);
+    if (next >= state.find.matches.length) next = 0;
+    if (next < 0) next = state.find.matches.length - 1;
+    showFindMatch(next);
+  }
+
+  function nearestMatchFromCursor() {
+    const pos = cm.indexFromPos(cm.getCursor());
+    for (let i = 0; i < state.find.matches.length; i += 1) if (state.find.matches[i].from >= pos) return i;
+    return 0;
+  }
+
+  function openFind(replaceMode) {
+    state.find.open = true;
+    $("findBar").hidden = false;
+    const sel = cm.getSelection();
+    if (sel && !sel.includes("\n") && sel.length < 200) $("findInput").value = sel;
+    rebuildFindMatches(false);
+    if (state.find.query && state.find.matches.length) {
+      state.find.index = nearestMatchFromCursor();
+      showFindMatch(state.find.index);
+    }
+    if (replaceMode) { $("replaceInput").focus(); $("replaceInput").select(); }
+    else { $("findInput").focus(); $("findInput").select(); }
+    updateFindCount();
+  }
+
+  function closeFind() {
+    state.find.open = false;
+    $("findBar").hidden = true;
+    if (cm) cm.focus();
+  }
+
+  function replaceCurrent() {
+    if (!state.find.matches.length) rebuildFindMatches(false);
+    if (!state.find.matches.length) { findNext(1); return; }
+    if (state.find.index < 0) state.find.index = nearestMatchFromCursor();
+    const m = state.find.matches[state.find.index];
+    const value = $("replaceInput").value;
+    cm.replaceRange(value, cm.posFromIndex(m.from), cm.posFromIndex(m.to));
+    rebuildFindMatches(true);
+    findNext(1);
+    setStatus("已替换");
+  }
+
+  function replaceAll() {
+    rebuildFindMatches(false);
+    const matches = state.find.matches;
+    if (!matches.length) { toast("没有找到：" + ($("findInput").value || ""), true); return; }
+    const value = $("replaceInput").value;
+    cm.operation(() => {
+      for (let i = matches.length - 1; i >= 0; i -= 1) {
+        cm.replaceRange(value, cm.posFromIndex(matches[i].from), cm.posFromIndex(matches[i].to));
+      }
+    });
+    const count = matches.length;
+    rebuildFindMatches(false);
+    toast("已替换 " + count + " 处");
+    setStatus("已替换 " + count + " 处");
   }
 
   function initEditor() {
@@ -416,6 +632,8 @@
       mode: { name: "javascript" },
       theme: "jsdark",
       lineNumbers: true,
+      foldGutter: true,
+      gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"],
       indentUnit: 2,
       tabSize: 2,
       lineWrapping: false,
@@ -423,10 +641,21 @@
       matchBrackets: true,
       styleActiveLine: true,
       extraKeys: {
-        "Ctrl-S": () => saveNow().catch(showError),
-        "Cmd-S": () => saveNow().catch(showError),
+        "Ctrl-S": () => saveNow({ manual: true }).catch(showError),
+        "Cmd-S": () => saveNow({ manual: true }).catch(showError),
         "Ctrl-Enter": runFile,
         "Cmd-Enter": runFile,
+        "Ctrl-F": () => openFind(false),
+        "Cmd-F": () => openFind(false),
+        "Ctrl-H": () => openFind(true),
+        "Cmd-Alt-F": () => openFind(true),
+        "Ctrl-Shift-Z": "redo",
+        "Cmd-Shift-Z": "redo",
+        "Ctrl-Y": "redo",
+        "Ctrl-Shift-[": "fold",
+        "Ctrl-Shift-]": "unfold",
+        "Ctrl-Alt-[": "foldAll",
+        "Ctrl-Alt-]": "unfoldAll",
       },
     });
     cm.on("change", () => {
@@ -436,14 +665,44 @@
       const pos = cm.getCursor();
       $("statusPos").textContent = "Ln " + (pos.line + 1) + ", Col " + (pos.ch + 1);
     });
+    cm.on("changes", updateHistoryButtons);
+    updateHistoryButtons();
+    renderOutline();
   }
 
   function bind() {
-    $("saveBtn").addEventListener("click", () => saveNow().catch(showError));
-    $("runBtn").addEventListener("click", runFile);
+    $("themeSelect").addEventListener("change", () => applyTheme($("themeSelect").value));
+    $("saveBtn").addEventListener("click", () => saveNow({ manual: true }).catch(showError));
+    $("runBtn").addEventListener("click", () => { if (state.running) stopRun(); else runFile(); });
     $("runSelectionBtn").addEventListener("click", runSelection);
     $("clearConsoleBtn").addEventListener("click", clearConsole);
     $("refreshBtn").addEventListener("click", () => loadProject().catch(showError));
+    $("undoBtn").addEventListener("click", () => { cm.undo(); cm.focus(); updateHistoryButtons(); });
+    $("redoBtn").addEventListener("click", () => { cm.redo(); cm.focus(); updateHistoryButtons(); });
+    $("foldAllBtn").addEventListener("click", () => { try { cm.execCommand("foldAll"); } catch (e) { toast("折叠失败：" + e.message, true); } });
+    $("unfoldAllBtn").addEventListener("click", () => { try { cm.execCommand("unfoldAll"); } catch (e) { toast("展开失败：" + e.message, true); } });
+    $("findBtn").addEventListener("click", () => { if (state.find.open) closeFind(); else openFind(false); });
+    $("findClose").addEventListener("click", closeFind);
+    $("findPrev").addEventListener("click", () => findNext(-1));
+    $("findNext").addEventListener("click", () => findNext(1));
+    $("replaceBtn").addEventListener("click", replaceCurrent);
+    $("replaceAllBtn").addEventListener("click", replaceAll);
+    $("findInput").addEventListener("input", () => {
+      rebuildFindMatches(false);
+      if (state.find.query && state.find.matches.length) {
+        state.find.index = nearestMatchFromCursor();
+        showFindMatch(state.find.index);
+      }
+    });
+    $("findCase").addEventListener("change", () => rebuildFindMatches(false));
+    $("findInput").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); findNext(event.shiftKey ? -1 : 1); }
+      else if (event.key === "Escape") { event.preventDefault(); closeFind(); }
+    });
+    $("replaceInput").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); replaceCurrent(); }
+      else if (event.key === "Escape") { event.preventDefault(); closeFind(); }
+    });
     $("replInput").addEventListener("keydown", (event) => {
       if (event.key !== "Enter") return;
       event.preventDefault();
@@ -455,13 +714,17 @@
     window.addEventListener("message", (event) => {
       if (event.source !== $("runFrame").contentWindow) return;
       const d = event.data || {};
-      if (d.type !== "js-run-console") return;
-      appendConsole(d.level, d.args);
-      if (d.level === "error") $("statusRun").textContent = "运行错误";
+      if (d.type === "js-run-console") { if (d.runId === state.runSeq) appendConsole(d.level, d.args); return; }
+      if (d.type === "js-run-done") { if (d.runId === state.runSeq) endRun(!!d.hadError); }
+    });
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && state.find.open) { event.preventDefault(); closeFind(); }
     });
   }
 
   async function init() {
+    setupFoldHelpers();
+    initTheme();
     initEditor();
     bind();
     updateChrome();

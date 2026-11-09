@@ -1,10 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>JavaScript 编辑器</title>
   <link rel="stylesheet" href="vendor/codemirror/codemirror.min.css">
+  <link rel="stylesheet" href="vendor/codemirror/addon/fold/foldgutter.min.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,9 +14,28 @@
     <div id="projectName" class="project-name"></div>
     <div id="currentFile" class="current-file">未打开文件</div>
     <div class="spacer"></div>
+    <div class="tool-group">
+      <button id="undoBtn" class="icon-tool" type="button" title="撤销 (Ctrl+Z)">撤销</button>
+      <button id="redoBtn" class="icon-tool" type="button" title="重做 (Ctrl+Shift+Z)">重做</button>
+      <button id="findBtn" class="icon-tool" type="button" title="查找替换 (Ctrl+F)">查找</button>
+      <span class="tool-sep"></span>
+      <button id="foldAllBtn" class="icon-tool" type="button" title="折叠全部">折叠</button>
+      <button id="unfoldAllBtn" class="icon-tool" type="button" title="展开全部">展开</button>
+      <span class="tool-sep"></span>
+      <select id="themeSelect" class="theme-select" title="界面风格">
+        <option value="javascript">JavaScript</option>
+        <option value="lyra">经典蓝</option>
+        <option value="violet">深空紫</option>
+        <option value="emerald">森林绿</option>
+        <option value="sunset">暖阳橙</option>
+        <option value="sakura">樱花粉</option>
+        <option value="light">极简白</option>
+      </select>
+    </div>
     <button id="saveBtn" class="tb-btn" type="button" title="Ctrl+S">保存</button>
     <button id="runSelectionBtn" class="tb-btn" type="button" title="只运行选中的 JavaScript">▶ 运行选中</button>
     <button id="runBtn" class="tb-btn primary" type="button" title="Ctrl+Enter">▶ 运行文件</button>
+    <span id="runBadge" class="run-badge" hidden>运行中…</span>
   </header>
 
   <div id="workspace">
@@ -37,7 +57,24 @@
             <span class="spacer"></span>
             <span id="saveState" class="save-state">就绪</span>
           </div>
-          <div id="editorWrap"><textarea id="code" spellcheck="false"></textarea></div>
+          <div id="editorWrap">
+            <textarea id="code" spellcheck="false"></textarea>
+            <div id="findBar" class="find-bar" hidden>
+              <div class="find-row">
+                <input id="findInput" type="text" placeholder="查找…" spellcheck="false" autocomplete="off"/>
+                <span id="findCount" class="find-count">0/0</span>
+                <button id="findPrev" class="find-btn" type="button" title="上一个 (Shift+Enter)">↑</button>
+                <button id="findNext" class="find-btn" type="button" title="下一个 (Enter)">↓</button>
+                <label class="case-label" title="区分大小写"><input id="findCase" type="checkbox"/> Aa</label>
+                <button id="findClose" class="find-btn close" type="button" title="关闭 (Esc)">×</button>
+              </div>
+              <div class="find-row replace-row">
+                <input id="replaceInput" type="text" placeholder="替换为…" spellcheck="false" autocomplete="off"/>
+                <button id="replaceBtn" class="find-btn" type="button">替换</button>
+                <button id="replaceAllBtn" class="find-btn" type="button">全部替换</button>
+              </div>
+            </div>
+          </div>
         </section>
         <aside id="outlinePanel">
           <div class="outline-head">Outline <span id="outlineCount">0</span></div>
@@ -64,6 +101,7 @@
       <div id="statusbar">
         <span id="statusPos">Ln 1, Col 1</span>
         <span id="statusFile"></span>
+        <span id="statusSave"></span>
         <span id="statusRun"></span>
       </div>
     </main>
@@ -80,6 +118,9 @@
   <script src="vendor/codemirror/addon/edit/closebrackets.min.js"></script>
   <script src="vendor/codemirror/addon/edit/matchbrackets.min.js"></script>
   <script src="vendor/codemirror/addon/selection/active-line.min.js"></script>
+  <script src="vendor/codemirror/addon/fold/foldcode.min.js"></script>
+  <script src="vendor/codemirror/addon/fold/foldgutter.min.js"></script>
+  <script src="vendor/codemirror/addon/fold/brace-fold.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
