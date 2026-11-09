@@ -22,6 +22,7 @@
     pending: new Map(),
     suppressChange: false,
     outlineTimer: 0,
+    autoHintCooldown: 0,
     autoSaveTimer: 0,
     saveInFlight: false,
     saveQueued: false,
@@ -658,6 +659,153 @@
     setStatus("已替换 " + count + " 处");
   }
 
+
+  // ---------- JavaScript 自动补全 ----------
+  const JS_HINT_KEYWORDS = ["async", "await", "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "export", "extends", "false", "finally", "for", "from", "function", "get", "if", "import", "in", "instanceof", "let", "new", "null", "of", "return", "set", "static", "super", "switch", "this", "throw", "true", "try", "typeof", "undefined", "var", "void", "while", "with", "yield"];
+  const JS_HINT_GLOBALS = ["console", "document", "window", "globalThis", "Math", "JSON", "Object", "Array", "String", "Number", "Boolean", "Date", "RegExp", "Promise", "Map", "Set", "WeakMap", "WeakSet", "Symbol", "Proxy", "Reflect", "Error", "TypeError", "RangeError", "Intl", "localStorage", "sessionStorage", "location", "navigator", "history", "fetch", "setTimeout", "clearTimeout", "setInterval", "clearInterval", "requestAnimationFrame", "cancelAnimationFrame", "queueMicrotask", "structuredClone", "crypto", "performance", "alert", "confirm", "prompt"];
+  const JS_HINT_SNIPPETS = [
+    { label: "function", text: "function name() {\n  \n}", detail: "function" },
+    { label: "function (args)", text: "function name(args) {\n  \n}", detail: "function" },
+    { label: "arrow function", text: "const name = (args) => {\n  \n};", detail: "arrow" },
+    { label: "async function", text: "async function name() {\n  \n}", detail: "async" },
+    { label: "if", text: "if (condition) {\n  \n}", detail: "control" },
+    { label: "for", text: "for (let i = 0; i < length; i += 1) {\n  \n}", detail: "control" },
+    { label: "for…of", text: "for (const item of items) {\n  \n}", detail: "control" },
+    { label: "try/catch", text: "try {\n  \n} catch (error) {\n  \n}", detail: "control" },
+    { label: "class", text: "class Name {\n  constructor() {\n  }\n}", detail: "class" },
+    { label: "console.log", text: "console.log(value)", detail: "log" },
+    { label: "querySelector", text: "document.querySelector(selector)", detail: "DOM" },
+    { label: "getElementById", text: "document.getElementById(id)", detail: "DOM" },
+    { label: "addEventListener", text: "addEventListener(\"click\", (event) => {\n  \n})", detail: "event" },
+  ];
+  const JS_MEMBERS = {
+    console: ["log", "info", "warn", "error", "debug", "table", "dir", "trace", "assert", "time", "timeEnd", "group", "groupEnd", "count", "clear"],
+    document: ["addEventListener", "removeEventListener", "querySelector", "querySelectorAll", "getElementById", "getElementsByClassName", "getElementsByTagName", "createElement", "createTextNode", "createDocumentFragment", "body", "head", "documentElement", "title", "URL", "location", "cookie", "readyState", "write", "writeln", "execCommand", "getSelection"],
+    window: ["addEventListener", "removeEventListener", "setTimeout", "clearTimeout", "setInterval", "clearInterval", "requestAnimationFrame", "cancelAnimationFrame", "fetch", "alert", "confirm", "prompt", "localStorage", "sessionStorage", "location", "navigator", "history", "console", "document", "innerWidth", "innerHeight", "scrollX", "scrollY", "scrollTo", "open", "close", "postMessage", "matchMedia"],
+    Math: ["abs", "ceil", "floor", "round", "max", "min", "pow", "sqrt", "random", "trunc", "sign", "log", "exp", "sin", "cos", "tan", "atan2", "PI", "E", "LN2", "LN10", "SQRT2"],
+    JSON: ["parse", "stringify"],
+    Array: ["from", "isArray", "of"],
+    Object: ["keys", "values", "entries", "assign", "freeze", "seal", "create", "defineProperty", "defineProperties", "getOwnPropertyNames", "getOwnPropertyDescriptor", "fromEntries", "hasOwn", "is", "prototype"],
+    String: ["fromCharCode", "fromCodePoint", "raw", "prototype"],
+    Number: ["isFinite", "isInteger", "isNaN", "isSafeInteger", "parseFloat", "parseInt", "MAX_SAFE_INTEGER", "MIN_SAFE_INTEGER", "EPSILON", "POSITIVE_INFINITY", "NEGATIVE_INFINITY", "NaN"],
+    Promise: ["all", "allSettled", "any", "race", "resolve", "reject", "prototype"],
+    Date: ["now", "parse", "UTC", "prototype"],
+    RegExp: ["prototype"],
+    localStorage: ["getItem", "setItem", "removeItem", "clear", "key", "length"],
+    sessionStorage: ["getItem", "setItem", "removeItem", "clear", "key", "length"],
+    location: ["href", "hash", "host", "hostname", "pathname", "port", "protocol", "search", "assign", "reload", "replace", "toString"],
+    navigator: ["userAgent", "language", "languages", "platform", "onLine", "clipboard", "geolocation"],
+    history: ["back", "forward", "go", "length", "pushState", "replaceState", "state"],
+    crypto: ["randomUUID", "getRandomValues", "subtle"],
+    performance: ["now", "mark", "measure", "getEntries", "timeOrigin"],
+  };
+  const JS_GENERIC_MEMBERS = ["length", "push", "pop", "shift", "unshift", "slice", "splice", "map", "filter", "reduce", "reduceRight", "forEach", "find", "findIndex", "findLast", "some", "every", "includes", "indexOf", "lastIndexOf", "join", "sort", "reverse", "concat", "at", "flat", "flatMap", "keys", "values", "entries", "startsWith", "endsWith", "replace", "replaceAll", "split", "trim", "trimStart", "trimEnd", "toLowerCase", "toUpperCase", "padStart", "padEnd", "toString", "valueOf", "then", "catch", "finally", "has", "add", "delete", "clear", "get", "set"];
+  const JS_HINT_BADGES = { kw: "KW", fn: "FN", snip: "SNIP", class: "CLS", var: "VAR", method: "FN", global: "GLB", prop: "PROP" };
+
+  function jsHintBadge(kind) { return JS_HINT_BADGES[kind] || "·"; }
+
+  function jsHintItem(kind, text, detail, displayText) {
+    return { text: text, displayText: displayText || text, kind: kind, detail: detail || "", render: jsHintRender };
+  }
+
+  function jsHintRender(el, completion, item) {
+    const data = item || completion || {};
+    const row = document.createElement("span");
+    row.className = "js-hint-row";
+    const badge = document.createElement("span");
+    badge.className = "js-hint-kind js-hint-" + (data.kind || "");
+    badge.textContent = jsHintBadge(data.kind);
+    const name = document.createElement("span");
+    name.className = "js-hint-name";
+    name.textContent = data.displayText || data.text || "";
+    row.append(badge, name);
+    if (data.detail) {
+      const detail = document.createElement("span");
+      detail.className = "js-hint-detail";
+      detail.textContent = data.detail;
+      row.appendChild(detail);
+    }
+    el.appendChild(row);
+  }
+
+  function jsMemberSuggestions(obj, prefix) {
+    const lower = String(prefix || "").toLowerCase();
+    const source = JS_MEMBERS[obj] || JS_GENERIC_MEMBERS;
+    return source
+      .filter((name) => !lower || name.toLowerCase().startsWith(lower))
+      .map((name) => jsHintItem(JS_MEMBERS[obj] ? "prop" : "prop", name, obj ? obj + "." : "member"));
+  }
+
+  function jsHintAt(cm) {
+    const cursor = cm.getCursor();
+    const token = cm.getTokenAt(cursor);
+    const tokenType = String(token.type || "");
+    if (/\b(comment|string)\b/.test(tokenType)) return null;
+    const before = cm.getLine(cursor.line).slice(0, cursor.ch);
+    const member = before.match(/([A-Za-z_$][\w$]*)\s*\??\.\s*([A-Za-z_$][\w$]*)?$/);
+    if (member) {
+      const prefix = member[2] || "";
+      const from = { line: cursor.line, ch: cursor.ch - prefix.length };
+      const list = jsMemberSuggestions(member[1], prefix);
+      return list.length ? { list: list, from: from, to: cursor } : null;
+    }
+    const wordMatch = before.match(/([A-Za-z_$][\w$]*)$/);
+    const prefix = wordMatch ? wordMatch[1] : "";
+    const lower = prefix.toLowerCase();
+    const from = { line: cursor.line, ch: cursor.ch - prefix.length };
+    const items = [];
+    const seen = new Set();
+    const add = (item) => {
+      if (!item || seen.has(item.text)) return;
+      if (lower && !String(item.displayText || item.text).toLowerCase().startsWith(lower)) return;
+      seen.add(item.text);
+      items.push(item);
+    };
+    for (const word of JS_HINT_KEYWORDS) add(jsHintItem("kw", word));
+    for (const word of JS_HINT_GLOBALS) add(jsHintItem("global", word));
+    if (cm) {
+      for (const sym of collectSymbols(cm.getValue())) add(jsHintItem(sym.kind === "class" ? "class" : sym.kind === "var" ? "var" : "fn", sym.name, "line " + sym.line));
+    }
+    for (const snippet of JS_HINT_SNIPPETS) {
+      add(jsHintItem("snip", snippet.text, snippet.detail, snippet.label));
+    }
+    if (!prefix && items.length > 80) items.length = 80;
+    return items.length ? { list: items, from: from, to: cursor } : null;
+  }
+
+  function showJsHint(cm) {
+    if (!cm || !cm.showHint) return;
+    const result = jsHintAt(cm);
+    if (!result || !result.list.length) {
+      if (cm.state.completionActive) cm.closeHint();
+      return;
+    }
+    try {
+      cm.showHint({ hint: () => result, completeSingle: false, closeOnUnfocus: true });
+    } catch { }
+  }
+
+  function shouldAutoHint(cm) {
+    if (!cm || cm.state.completionActive || Date.now() < state.autoHintCooldown) return false;
+    if (cm.somethingSelected()) return false;
+    const cursor = cm.getCursor();
+    const token = cm.getTokenAt(cursor);
+    const tokenType = String(token.type || "");
+    if (/\b(comment|string)\b/.test(tokenType)) return false;
+    const before = cm.getLine(cursor.line).slice(0, cursor.ch);
+    if (/\.\s*$/.test(before)) return true;
+    if (/\.\s*[A-Za-z_$][\w$]*$/.test(before)) return true;
+    const word = (before.match(/[A-Za-z_$][\w$]*$/) || [""])[0];
+    return word.length >= 2;
+  }
+
+  function scheduleJsHint(cm) {
+    clearTimeout(cm._jsHintTimer);
+    cm._jsHintTimer = setTimeout(() => {
+      if (shouldAutoHint(cm)) showJsHint(cm);
+    }, 180);
+  }
+
   function initEditor() {
     cm = CodeMirror.fromTextArea($("code"), {
       mode: { name: "javascript" },
@@ -676,6 +824,8 @@
         "Cmd-S": () => saveNow({ manual: true }).catch(showError),
         "Ctrl-Enter": runFile,
         "Cmd-Enter": runFile,
+        "Ctrl-Space": () => showJsHint(cm),
+        "Alt-Space": () => showJsHint(cm),
         "Ctrl-F": () => openFind(false),
         "Cmd-F": () => openFind(false),
         "Ctrl-H": () => openFind(true),
@@ -697,6 +847,16 @@
       $("statusPos").textContent = "Ln " + (pos.line + 1) + ", Col " + (pos.ch + 1);
     });
     cm.on("changes", updateHistoryButtons);
+    cm.on("inputRead", (editor, change) => {
+      if (state.suppressChange) return;
+      const typed = change && change.text ? change.text.join("") : "";
+      if (!/[\w$\.]$/.test(typed)) return;
+      clearTimeout(editor._jsHintTimer);
+      scheduleJsHint(editor);
+    });
+    cm.on("endCompletion", () => {
+      state.autoHintCooldown = Date.now() + 260;
+    });
     updateHistoryButtons();
     renderOutline();
   }
