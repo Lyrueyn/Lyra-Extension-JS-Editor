@@ -172,3 +172,9 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 - 自动补全改用 Monaco 自带的 TypeScript language service（vendor/monaco-ts.min.js）。
 - DOM/ES2022 类型、成员方法、JSDoc、局部变量补全更完整。
 - 保留原有悬浮、参数提示、定义、引用、重命名和自动导入。
+
+## 1.13.0
+
+- 悬浮提示也改用 Monaco TypeScript language service，和 HTML 编辑器一致。
+- 悬浮卡显示 `FN queue.push`、完整签名、JSDoc、`Monaco TS · Ln`。
+- 补全继续使用 Monaco TS 服务；原有本地规则作为回退。

@@ -773,6 +773,23 @@
       html += '<div class="hover-meta">' + escHtml(meta) + '</div>';
       return html;
     }
+    function monacoKindLabel(kind) {
+      const k = String(kind || "");
+      if (/function|method|constructor/.test(k)) return "FN";
+      if (/class|interface|enum/.test(k)) return "CLS";
+      if (/property|field|getter|setter/.test(k)) return "PROP";
+      if (/keyword/.test(k)) return "KW";
+      if (/const|let|var|local/.test(k)) return "VAR";
+      if (/module|alias/.test(k)) return "MOD";
+      return "SYM";
+    }
+    function monacoHoverCard(info) {
+      let html = '<div class="hover-title"><span class="hover-kind">' + escHtml(monacoKindLabel(info.kind)) + '</span><span class="hover-name">' + escHtml(info.name || "symbol") + '</span></div>';
+      html += '<div class="hover-sig">' + escHtml(info.display || "") + '</div>';
+      if (info.documentation) html += '<div class="hover-doc">' + escHtml(info.documentation) + '</div>';
+      html += '<div class="hover-meta">Monaco TS · Ln ' + info.line + '</div>';
+      return html;
+    }
     function hideHover() {
       clearTimeout(hoverTimer);
       const el = document.getElementById("hoverCard");
@@ -817,6 +834,22 @@
       if (skipToken(pos)) { hideHover(); return; }
       const word = wordNear(editor, pos);
       if (!word) { hideHover(); return; }
+      const monaco = window.MonacoCompletion && window.MonacoCompletion.hoverAt(editor, pos, word);
+      if (monaco) {
+        clearTimeout(hoverTimer);
+        hoverTimer = setTimeout(() => {
+          card.innerHTML = monacoHoverCard(monaco);
+          card.hidden = false;
+          const width = Math.min(card.offsetWidth || 420, 460);
+          let left = mouseEvent.clientX + 16;
+          let top = mouseEvent.clientY + 16;
+          if (left + width > window.innerWidth - 12) left = window.innerWidth - width - 12;
+          if (top + 180 > window.innerHeight - 12) top = Math.max(12, mouseEvent.clientY - 180);
+          card.style.left = Math.max(8, left) + "px";
+          card.style.top = Math.max(8, top) + "px";
+        }, 160);
+        return;
+      }
       const analysis = currentAnalysis();
       const candidates = analysis.symbols.filter((s) => s.name === word.name);
       const local = candidates.find((s) => s.line === pos.line) || candidates.reduce((best, cur) => (!best || Math.abs((cur.line || 0) - pos.line) < Math.abs((best.line || 0) - pos.line) ? cur : best), null);

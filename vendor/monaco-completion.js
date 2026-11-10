@@ -52,6 +52,31 @@
     return "var";
   }
 
+  function displayParts(parts) { return (parts || []).map((p) => p.text || "").join(""); }
+
+  function hoverAt(cm, pos, word) {
+    if (!cm || !ts) return null;
+    try {
+      const handle = getService(cm.getValue());
+      const at = word ? word.from : pos;
+      const qi = handle.instance.getQuickInfoAtPosition(handle.fileName, cm.indexFromPos(at));
+      if (!qi || !qi.displayParts || !qi.displayParts.length) return null;
+      const docs = [];
+      if (qi.documentation) docs.push(displayParts(qi.documentation));
+      for (const tag of qi.tags || []) docs.push("@" + tag.name + (tag.text ? " " + displayParts(tag.text) : ""));
+      const lineText = cm.getLine(pos.line) || "";
+      const before = lineText.slice(0, word ? word.from.ch : pos.ch);
+      const owner = (before.match(/([A-Za-z_$][\w$]*)\s*\.\s*$/) || [])[1];
+      return {
+        name: word ? (owner ? owner + "." + (word.text || word.name) : (word.text || word.name)) : "",
+        display: displayParts(qi.displayParts),
+        documentation: docs.filter(Boolean).join("\n"),
+        kind: qi.kind || "",
+        line: pos.line + 1,
+      };
+    } catch { return null; }
+  }
+
   function hintAt(cm) {
     if (!cm || !ts) return null;
     const cursor = cm.getCursor();
@@ -98,5 +123,5 @@
     };
   }
 
-  window.MonacoCompletion = { hintAt: hintAt, kindOf: kindOf };
+  window.MonacoCompletion = { hintAt: hintAt, hoverAt: hoverAt, kindOf: kindOf };
 })();
