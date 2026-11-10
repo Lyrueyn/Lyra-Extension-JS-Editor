@@ -344,6 +344,231 @@
     }
     walkChecks(ast);
 
+    function analyzeTypes(ast) {
+      const out = [];
+      const stringMethods = new Set(["toUpperCase", "toLowerCase", "trim", "trimStart", "trimEnd", "split", "slice", "substring", "substr", "replace", "replaceAll", "startsWith", "endsWith", "includes", "padStart", "padEnd", "charAt", "charCodeAt", "indexOf", "lastIndexOf", "match", "matchAll", "search", "repeat", "concat"]);
+      const numberMethods = new Set(["toFixed", "toExponential", "toPrecision", "toString", "valueOf"]);
+      function warn(node, rule, message) {
+        out.push({ line: node.loc.start.line, ch: node.loc.start.column, severity: "warning", rule: rule, message: message });
+      }
+      function scopeChild(parent) { return { vars: new Map(), parent: parent }; }
+      function lookup(scope, name) {
+        let cur = scope;
+        while (cur) { if (cur.vars.has(name)) return cur.vars.get(name); cur = cur.parent; }
+        return null;
+      }
+      function declare(scope, name, info) { if (name) scope.vars.set(name, info || { type: "unknown" }); }
+      function literalInfo(node) {
+        if (!node) return { type: "unknown" };
+        if (node.type === "Literal") {
+          if (node.value === null) return { type: "null", value: null };
+          if (typeof node.value === "number") return { type: "number", value: node.value };
+          if (typeof node.value === "string") return { type: "string", value: node.value };
+          if (typeof node.value === "boolean") return { type: "boolean", value: node.value };
+          if (node.regex) return { type: "regexp" };
+        }
+        if (node.type === "TemplateLiteral") return { type: "string" };
+        if (node.type === "ArrayExpression") return { type: "array", arrayLength: (node.elements || []).length };
+        if (node.type === "ObjectExpression") return { type: "object" };
+        if ((node.type === "FunctionExpression") || (node.type === "ArrowFunctionExpression")) return { type: "function", callable: true };
+        if (node.type === "ClassExpression") return { type: "class", callable: true };
+        return { type: "unknown" };
+      }
+      function infer(node, scope) {
+        if (!node) return { type: "unknown" };
+        switch (node.type) {
+          case "Identifier": {
+            if (node.name === "undefined") return { type: "undefined", value: undefined };
+            if (node.name === "NaN") return { type: "number" };
+            if (node.name === "Infinity") return { type: "number" };
+            return lookup(scope, node.name) || { type: "unknown" };
+          }
+          case "Literal":
+          case "TemplateLiteral":
+          case "ArrayExpression":
+          case "ObjectExpression":
+          case "FunctionExpression":
+          case "ArrowFunctionExpression":
+          case "ClassExpression":
+            return literalInfo(node);
+          case "UnaryExpression": {
+            const arg = infer(node.argument, scope);
+            if (node.operator === "typeof") return { type: "string" };
+            if (node.operator === "!") return { type: "boolean" };
+            if (node.operator === "-" || node.operator === "+") return { type: "number" };
+            return arg;
+          }
+          case "BinaryExpression": {
+            const op = node.operator;
+            if (["==", "!=", "===", "!==", "<", "<=", ">", ">=", "instanceof", "in"].includes(op)) return { type: "boolean" };
+            if (["-", "*", "/", "%", "**", "<<", ">>", ">>>", "&", "|", "^"].includes(op)) return { type: "number" };
+            if (op === "+") {
+              const left = infer(node.left, scope);
+              const right = infer(node.right, scope);
+              return left.type === "string" || right.type === "string" ? { type: "string" } : { type: "number" };
+            }
+            return { type: "unknown" };
+          }
+          case "LogicalExpression": {
+            const left = infer(node.left, scope);
+            const right = infer(node.right, scope);
+            return right.type !== "unknown" ? right : left;
+          }
+          case "ConditionalExpression": {
+            const a = infer(node.consequent, scope);
+            const b = infer(node.alternate, scope);
+            return a.type === b.type ? a : { type: "unknown" };
+          }
+          case "AssignmentExpression":
+            return infer(node.right, scope);
+          case "SequenceExpression":
+            return node.expressions && node.expressions.length ? infer(node.expressions[node.expressions.length - 1], scope) : { type: "unknown" };
+          case "NewExpression": {
+            const callee = node.callee;
+            if (callee && callee.type === "Identifier" && callee.name === "Array") {
+              const arg = node.arguments && node.arguments[0];
+              let num = null;
+              if (arg && arg.type === "Literal" && typeof arg.value === "number") num = arg.value;
+              else if (arg && arg.type === "UnaryExpression" && arg.operator === "-" && arg.argument && arg.argument.type === "Literal" && typeof arg.argument.value === "number") num = -arg.argument.value;
+              if (num != null && num < 0) warn(node, "invalid-array-length", "new Array(" + num + ") 会抛出 RangeError：数组长度不能为负数");
+              return { type: "array", arrayLength: -1 };
+            }
+            if (callee && callee.type === "Identifier" && /Error$/.test(callee.name)) return { type: "object" };
+            return { type: "object" };
+          }
+          case "MemberExpression": {
+            const base = infer(node.object, scope);
+            if (base.type === "undefined" || base.type === "null") {
+              warn(node, "possible-type-error", (base.type === "undefined" ? "undefined" : "null") + " 不能读取属性 '" + (node.property && node.property.name || "?") + "'，运行时会抛 TypeError");
+            }
+            if (node.object && node.object.type === "MemberExpression" && node.object.computed && node.object.property && node.object.property.type === "Literal" && typeof node.object.property.value === "number") {
+              const root = infer(node.object.object, scope);
+              if (root.type === "array" && root.arrayLength >= 0 && node.object.property.value >= root.arrayLength) {
+                warn(node.object, "array-out-of-bounds", "数组长度为 " + root.arrayLength + "，访问下标 " + node.object.property.value + " 会得到 undefined");
+              }
+            }
+            const propName = node.property && (node.property.name || (node.property.type === "Literal" ? node.property.value : ""));
+            if (base.type === "number" || base.type === "boolean") {
+              if (stringMethods.has(propName) && !numberMethods.has(propName)) warn(node, "type-mismatch", base.type + " 类型没有 '" + propName + "' 方法");
+            }
+            if (base.type === "string" && numberMethods.has(propName)) warn(node, "type-mismatch", "string 类型没有 '" + propName + "' 方法");
+            if (propName === "length" && ["string", "array"].includes(base.type)) return { type: "number" };
+            if (base.type === "string" && stringMethods.has(propName)) return { type: "function", callable: true };
+            if (base.type === "array") return { type: "unknown" };
+            if (base.type === "object") return { type: "unknown" };
+            return { type: "unknown" };
+          }
+          case "CallExpression": {
+            const callee = node.callee;
+            for (const arg of node.arguments || []) infer(arg, scope);
+            const target = infer(callee, scope);
+            if (target && target.type !== "unknown" && target.type !== "function" && target.type !== "class" && !target.callable) {
+              warn(callee, "call-non-function", "尝试调用 " + target.type + " 类型的值，运行时会抛 TypeError；如果它有值可能是 '" + (target.value != null ? String(target.value) : target.type) + "'");
+            }
+            if (callee && callee.type === "Identifier" && (callee.name === "decodeURIComponent" || callee.name === "decodeURI") && node.arguments && node.arguments[0] && node.arguments[0].type === "Literal" && typeof node.arguments[0].value === "string") {
+              const value = node.arguments[0].value;
+              if (/%/.test(value) && /%(?![0-9A-Fa-f]{2})/.test(value)) warn(node, "invalid-uri", callee.name + " 收到非法百分号转义，会抛 URIError");
+            }
+            if (callee && callee.type === "MemberExpression" && callee.object && callee.object.type === "Identifier" && callee.object.name === "JSON" && callee.property && callee.property.name === "parse" && node.arguments && node.arguments[0] && node.arguments[0].type === "Literal" && typeof node.arguments[0].value === "string") {
+              try { JSON.parse(node.arguments[0].value); }
+              catch (err) { warn(node, "invalid-json", "JSON.parse 的字符串不是合法 JSON，会抛 SyntaxError"); }
+            }
+            return { type: "unknown" };
+          }
+        }
+        return { type: "unknown" };
+      }
+
+      function analyzeFunction(node, parentScope, selfName) {
+        const scope = scopeChild(parentScope);
+        for (const param of node.params || []) {
+          if (param.type === "Identifier") declare(scope, param.name, { type: "unknown" });
+          else if (param.type === "AssignmentPattern" && param.left.type === "Identifier") declare(scope, param.left.name, { type: "unknown" });
+        }
+        if (node.body && node.body.type === "BlockStatement") {
+          if (selfName && !node.async) {
+            const hasConditional = (node.body.body || []).some((stmt) => ["IfStatement", "SwitchStatement", "ForStatement", "WhileStatement", "DoWhileStatement", "TryStatement"].includes(stmt.type));
+            const direct = (node.body.body || []).some((stmt) => stmt.type === "ReturnStatement" && stmt.argument && stmt.argument.type === "CallExpression" && stmt.argument.callee && stmt.argument.callee.type === "Identifier" && stmt.argument.callee.name === selfName);
+            if (direct && !hasConditional) warn(node.id || node, "unconditional-recursion", "递归函数 '" + selfName + "' 没有终止条件，会因栈溢出抛 RangeError");
+          }
+          analyzeStatements(node.body.body, scope);
+        } else if (node.body) infer(node.body, scope);
+      }
+
+      function analyzeStatements(list, scope) {
+        for (const stmt of list || []) {
+          if (!stmt) continue;
+          if (stmt.type === "VariableDeclaration") {
+            for (const decl of stmt.declarations || []) {
+              const info = infer(decl.init, scope);
+              if (decl.id && decl.id.type === "Identifier") declare(scope, decl.id.name, info);
+            }
+            continue;
+          }
+          if (stmt.type === "FunctionDeclaration" && stmt.id) {
+            declare(scope, stmt.id.name, { type: "function", callable: true, value: stmt.id.name });
+            analyzeFunction(stmt, scope, stmt.id.name);
+            continue;
+          }
+          if (stmt.type === "ClassDeclaration" && stmt.id) {
+            declare(scope, stmt.id.name, { type: "class", callable: true });
+            for (const member of stmt.body && stmt.body.body || []) {
+              if (member.type === "MethodDefinition" && member.value) analyzeFunction(member.value, scope, null);
+            }
+            continue;
+          }
+          if (stmt.type === "ExpressionStatement") { infer(stmt.expression, scope); continue; }
+          if (stmt.type === "ReturnStatement" || stmt.type === "ThrowStatement") { if (stmt.argument) infer(stmt.argument, scope); continue; }
+          if (stmt.type === "IfStatement") {
+            infer(stmt.test, scope);
+            if (stmt.consequent) { if (stmt.consequent.type === "BlockStatement") analyzeStatements(stmt.consequent.body, scopeChild(scope)); else analyzeStatements([stmt.consequent], scopeChild(scope)); }
+            if (stmt.alternate) { if (stmt.alternate.type === "BlockStatement") analyzeStatements(stmt.alternate.body, scopeChild(scope)); else analyzeStatements([stmt.alternate], scopeChild(scope)); }
+            continue;
+          }
+          if (stmt.type === "ForStatement") {
+            const s = scopeChild(scope);
+            if (stmt.init) { if (stmt.init.type === "VariableDeclaration") analyzeStatements([stmt.init], s); else infer(stmt.init, s); }
+            if (stmt.test) infer(stmt.test, s);
+            if (stmt.update) infer(stmt.update, s);
+            if (stmt.body) { if (stmt.body.type === "BlockStatement") analyzeStatements(stmt.body.body, s); else analyzeStatements([stmt.body], s); }
+            continue;
+          }
+          if ((stmt.type === "WhileStatement") || (stmt.type === "DoWhileStatement")) {
+            infer(stmt.test, scope);
+            if (stmt.body) { if (stmt.body.type === "BlockStatement") analyzeStatements(stmt.body.body, scopeChild(scope)); else analyzeStatements([stmt.body], scopeChild(scope)); }
+            continue;
+          }
+          if (stmt.type === "TryStatement") {
+            analyzeStatements(stmt.block && stmt.block.body, scopeChild(scope));
+            if (stmt.handler) {
+              const cs = scopeChild(scope);
+              if (stmt.handler.param && stmt.handler.param.type === "Identifier") declare(cs, stmt.handler.param.name, { type: "object" });
+              analyzeStatements(stmt.handler.body && stmt.handler.body.body, cs);
+            }
+            if (stmt.finalizer) analyzeStatements(stmt.finalizer.body, scopeChild(scope));
+            continue;
+          }
+          if (stmt.type === "BlockStatement") { analyzeStatements(stmt.body, scopeChild(scope)); continue; }
+          if (stmt.type === "SwitchStatement") {
+            infer(stmt.discriminant, scope);
+            for (const c of stmt.cases || []) { if (c.test) infer(c.test, scope); analyzeStatements(c.consequent, scopeChild(scope)); }
+            continue;
+          }
+          if (stmt.type === "LabeledStatement") { analyzeStatements([stmt.body], scope); continue; }
+          if (stmt.type === "ExportNamedDeclaration" || stmt.type === "ExportDefaultDeclaration") { if (stmt.declaration) analyzeStatements([stmt.declaration], scope); continue; }
+          forEachChild(stmt, (child) => { if (child.type !== "Identifier") { try { infer(child, scope); } catch (e) {} } });
+        }
+      }
+      analyzeStatements(ast.body || [], { vars: new Map(), parent: null });
+      return out;
+    }
+
+    const typeProblems = analyzeTypes(ast);
+    for (const problem of typeProblems) {
+      const key = problem.rule + ":" + problem.line + ":" + problem.ch + ":" + problem.message;
+      if (!reported.has(key) && problems.length < 300) { reported.add(key); problems.push(problem); }
+    }
+
     problems.sort((a, b) => a.line - b.line || a.ch - b.ch);
     return problems;
   }
