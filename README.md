@@ -203,3 +203,8 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 - 断点：行号左侧红点，运行时暂停在该行。
 - 继续/单步/暂停、暂停行高亮、变量面板、表达式求值。
 - 当前支持顶层与块级语句（for/if/try/switch 等）；函数体内部暂未插桩。
+
+## 1.17.1
+
+- 顶部新增「断点」按钮，支持 F9 切换当前行断点。
+- 断点栏加宽并加背景，行号最左侧窄栏更明显。

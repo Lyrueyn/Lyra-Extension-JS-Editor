@@ -482,3 +482,7 @@ html[data-js-theme="light"] .problem-detail { background: #f6f9fc; }
 .debug-eval-row input { flex: 1; min-width: 0; height: 26px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); color: var(--text); font: 11px Consolas, monospace; padding: 0 7px; }
 .debug-eval-result { margin-top: 7px; font: 11px/1.5 Consolas, monospace; color: #9be7a8; white-space: pre-wrap; }
 .cm-debug-paused { background: rgba(255, 194, 71, .22) !important; }
+
+/* 让断点栏更明显 */
+.CodeMirror-gutter.breakpoints { width: 18px; background: rgba(255,255,255,.025); border-right: 1px solid rgba(255,255,255,.04); }
+.CodeMirror-gutter.breakpoints:hover { background: rgba(255,98,98,.12); }

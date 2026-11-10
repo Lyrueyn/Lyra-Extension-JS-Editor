@@ -1482,7 +1482,7 @@
     if (debugLayout) debugLayout.hidden = state.bottomTab !== "debug";
     if (state.bottomTab === "problems") { renderProblemList(); renderProblemDetail(); }
     if (state.bottomTab === "debug") {
-      setDebugStatus(state.debug.paused ? "已暂停" : "在行号左侧点断点，然后运行文件");
+      setDebugStatus(state.debug.paused ? "已暂停" : "点击代码行号最左侧窄栏，或按 F9 / 点顶部「断点」按钮");
     }
   }
 
@@ -1970,6 +1970,7 @@
         "Shift-Alt-F": formatDocument,
         "Alt-Shift-F": formatDocument,
         "Ctrl-Shift-M": () => runLint({ open: true, manual: true }),
+        "F9": () => toggleBreakpoint(cm.getCursor().line),
         "Ctrl-F": () => openFind(false),
         "Cmd-F": () => openFind(false),
         "Ctrl-H": () => openFind(true),
@@ -2054,6 +2055,7 @@
     $("hintBtn").addEventListener("click", () => { cm.focus(); showJsHint(cm); });
     $("formatBtn").addEventListener("click", formatDocument);
     $("lintBtn").addEventListener("click", () => runLint({ open: true, manual: true }));
+    $("breakpointBtn").addEventListener("click", () => { cm.focus(); toggleBreakpoint(cm.getCursor().line); });
     $("consoleTab").addEventListener("click", () => setBottomTab("console"));
     $("problemsTab").addEventListener("click", () => setBottomTab("problems"));
     $("consoleAutoScroll").addEventListener("change", () => { state.consoleAutoScroll = $("consoleAutoScroll").checked; });
