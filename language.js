@@ -649,7 +649,9 @@
       return { name, from: { line: pos.line, ch: start }, to: { line: pos.line, ch: end } };
     }
     function wordAtPos(editor, pos) {
+      if (!editor || !pos || pos.line < 0 || pos.line >= editor.lineCount()) return null;
       const line = editor.getLine(pos.line);
+      if (line == null) return null;
       let start = pos.ch;
       while (start > 0 && /[\w$]/.test(line[start - 1])) start -= 1;
       let end = pos.ch;
@@ -658,7 +660,7 @@
     }
     function skipToken(pos) {
       const editor = cm();
-      if (!editor) return true;
+      if (!editor || !pos || pos.line < 0 || pos.line >= editor.lineCount()) return true;
       const t = editor.getTokenAt(pos);
       return /\b(comment|string)\b/.test(String(t.type || ""));
     }
@@ -811,6 +813,7 @@
       clearTimeout(hoverTimer);
       let pos;
       try { pos = posFromMouse(editor, mouseEvent); } catch (e) { return; }
+      if (!pos || pos.line < 0 || pos.line >= editor.lineCount()) { hideHover(); return; }
       if (skipToken(pos)) { hideHover(); return; }
       const word = wordNear(editor, pos);
       if (!word) { hideHover(); return; }

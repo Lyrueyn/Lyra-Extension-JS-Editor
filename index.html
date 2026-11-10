@@ -51,6 +51,7 @@
       <div id="fileTree" class="file-tree"></div>
       <div class="side-hint">HTML 文件会交给 HTML 编辑器插件打开</div>
     </aside>
+    <div id="sidebarResizer" class="pane-resizer vertical" title="拖动调整文件树宽度"></div>
 
     <main id="main">
       <div id="editorArea">
@@ -83,6 +84,7 @@
             </div>
           </div>
         </section>
+        <div id="outlineResizer" class="pane-resizer vertical" title="拖动调整大纲宽度"></div>
         <aside id="outlinePanel">
           <div class="side-tabs">
             <button id="sideOutlineBtn" class="side-tab active" type="button">大纲 <span id="outlineCount">0</span></button>
@@ -92,6 +94,7 @@
           <div id="refsList" class="refs-list" hidden></div>
         </aside>
       </div>
+      <div id="bottomResizer" class="pane-resizer horizontal" title="拖动调整控制台高度"></div>
 
       <section id="bottomPanel">
         <div id="panelTabs">
@@ -99,6 +102,8 @@
           <button id="problemsTab" class="panel-tab" type="button">问题 <span id="problemsCount">0</span></button>
           <span id="runtimeBadge" class="runtime-badge">浏览器沙箱</span>
           <span class="spacer"></span>
+          <label class="panel-toggle" title="新输出到来时自动滚到底部"><input id="consoleAutoScroll" type="checkbox" checked/> 自动滚动</label>
+          <button id="copyConsoleBtn" class="panel-tool" type="button">复制</button>
           <button id="clearConsoleBtn" class="panel-tool" type="button">清空</button>
         </div>
         <div id="consoleOutput" class="console-output">

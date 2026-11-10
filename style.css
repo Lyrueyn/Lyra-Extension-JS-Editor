@@ -277,7 +277,7 @@ html[data-js-theme="light"] .tb-btn.primary { color: #fff; }
 .console-run-sep { height: 9px; border: 0; margin: 0; }
 .icon-tool:disabled { opacity: .35; cursor: default; }
 
-html[data-shell="1"] #sidebar, html[data-shell="1"] .side-hint { display: none !important; }
+html[data-shell="1"] #sidebar, html[data-shell="1"] .side-hint, html[data-shell="1"] #sidebarResizer { display: none !important; }
 
 html[data-shell="1"] .theme-select { display: none !important; }
 
@@ -397,3 +397,27 @@ html[data-js-theme="light"] .find-btn.primary { color: #fff; }
 .cm-lint-line-warning { background: rgba(232, 184, 76, .10) !important; }
 html[data-js-theme="light"] .cm-lint-line-error { background: rgba(220, 60, 60, .10) !important; }
 html[data-js-theme="light"] .cm-lint-line-warning { background: rgba(190, 135, 15, .11) !important; }
+
+
+/* ---------- Resizable panes / compact console ---------- */
+#bottomPanel { resize: none; flex: 0 0 226px; min-height: 96px; }
+.pane-resizer { position: relative; z-index: 8; flex: 0 0 6px; background: transparent; }
+.pane-resizer.vertical { cursor: col-resize; }
+.pane-resizer.horizontal { cursor: row-resize; flex-basis: 6px; }
+.pane-resizer::after { content: ""; position: absolute; background: var(--line); opacity: .65; transition: background .12s ease, opacity .12s ease; }
+.pane-resizer.vertical::after { top: 0; bottom: 0; left: 50%; width: 1px; }
+.pane-resizer.horizontal::after { left: 0; right: 0; top: 50%; height: 1px; }
+.pane-resizer:hover::after, .pane-resizer.dragging::after { background: var(--accent); opacity: 1; }
+.panel-toggle { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 10px; user-select: none; cursor: pointer; }
+.panel-toggle input { accent-color: var(--accent); width: 11px; height: 11px; }
+.console-output { padding: 2px 8px 8px; font: 11px/1.55 Consolas, "Cascadia Mono", "Microsoft YaHei", monospace; }
+.console-line { border-bottom: 0; padding: 1.5px 3px; gap: 6px; align-items: flex-start; border-radius: 3px; }
+.console-line:hover { background: rgba(255,255,255,.035); }
+.console-time { flex: 0 0 48px; color: #52677b; font-size: 9px; padding-top: 2px; user-select: none; }
+.console-level { flex: 0 0 36px; min-width: 0; font-size: 9px; font-weight: 700; letter-spacing: .04em; padding-top: 2px; opacity: .9; }
+.console-text { flex: 1; min-width: 0; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.console-line.run-start, .console-line.run-done, .console-line.run-stop { margin-top: 5px; padding: 3px 4px; background: rgba(255,255,255,.018); }
+.console-line.run-start .console-time, .console-line.run-done .console-time, .console-line.run-stop .console-time { color: transparent; }
+.console-run-sep { height: 1px; background: var(--line); opacity: .5; margin: 7px 3px; }
+html[data-js-theme="light"] .console-line:hover { background: rgba(15,40,60,.035); }
+html[data-js-theme="light"] .console-time { color: #8494a4; }

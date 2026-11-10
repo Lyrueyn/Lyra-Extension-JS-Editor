@@ -135,3 +135,10 @@ JavaScript 编辑器是「编辑器」扩展的 editor-plugin 插件。
 ## License
 
 GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## 1.7.0
+
+- Console 分区可上下拖动调高，文件树/大纲可左右拖动，尺寸写入 localStorage。
+- Console 改为紧凑单行布局：时间 + 级别 + 内容，减少分隔线和空白；新增自动滚动开关与复制按钮。
+- 运行结束改为等待最后输出后 460ms 静默才标记，避免异步输出出现在“运行结束”之后；真正晚到的输出会标注“运行结束后输出”。
+- 悬停定位增加越界保护，拖动布局时不会报错。

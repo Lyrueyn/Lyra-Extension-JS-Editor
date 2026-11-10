@@ -29,6 +29,11 @@
     lintLineClasses: new Map(),
     bottomTab: "console",
     problemIndex: -1,
+    consoleAutoScroll: true,
+    pendingRunDone: null,
+    runDoneTimer: 0,
+    postRunNoted: false,
+    lastRunEnded: false,
     hintSymbolsValue: null,
     hintSymbols: [],
     autoSaveTimer: 0,
@@ -465,17 +470,31 @@
     const out = $("consoleOutput");
     const empty = out.querySelector(".console-empty");
     if (empty) empty.remove();
+    if (state.pendingRunDone && state.running) {
+      clearTimeout(state.runDoneTimer);
+      state.runDoneTimer = setTimeout(finalizeRun, 460);
+    }
+    if (state.lastRunEnded && !state.postRunNoted && !/^run-/.test(extraClass || "")) {
+      state.postRunNoted = true;
+      const note = document.createElement("div");
+      note.className = "console-line info post-run-note";
+      note.innerHTML = '<span class="console-time"></span><span class="console-level">INFO</span><span class="console-text">运行结束后输出</span>';
+      out.appendChild(note);
+    }
     const line = document.createElement("div");
     line.className = "console-line " + (level || "log") + (extraClass ? " " + extraClass : "");
+    const time = document.createElement("span");
+    time.className = "console-time";
+    time.textContent = new Date().toTimeString().slice(0, 8);
     const lv = document.createElement("span");
     lv.className = "console-level";
     lv.textContent = (level || "log").toUpperCase();
     const text = document.createElement("span");
     text.className = "console-text";
     text.textContent = Array.isArray(args) ? args.join(" ") : String(args == null ? "" : args);
-    line.append(lv, text);
+    line.append(time, lv, text);
     out.appendChild(line);
-    out.scrollTop = out.scrollHeight;
+    if (state.consoleAutoScroll) out.scrollTop = out.scrollHeight;
   }
 
   function appendRunSeparator() {
@@ -490,6 +509,30 @@
   function clearConsole() {
     $("consoleOutput").innerHTML = '<div class="console-empty">点击「运行文件」或「运行选中」执行 JavaScript，console.log 会输出到这里。</div>';
     $("statusRun").textContent = "";
+    state.lastRunEnded = false;
+    state.postRunNoted = false;
+    clearTimeout(state.runDoneTimer);
+    state.pendingRunDone = null;
+  }
+
+  function copyConsole() {
+    const out = $("consoleOutput");
+    const text = Array.from(out.querySelectorAll(".console-line")).map((line) => line.innerText.replace(/\n+/g, " ").trim()).filter(Boolean).join("\n");
+    if (!text) { toast("Console 还是空的", true); return; }
+    const fallback = () => {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.style.cssText = "position:fixed;left:-9999px;top:0;";
+      document.body.appendChild(area);
+      area.select();
+      let ok = false;
+      try { ok = document.execCommand("copy"); } catch { }
+      area.remove();
+      toast(ok ? "已复制 Console 输出" : "复制失败", !ok);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => toast("已复制 Console 输出")).catch(fallback);
+    } else fallback();
   }
 
   function setRunUi(running) {
@@ -518,6 +561,10 @@
   function startRun(label, code) {
     if (state.running) stopRun();
     appendRunSeparator();
+    clearTimeout(state.runDoneTimer);
+    state.pendingRunDone = null;
+    state.lastRunEnded = false;
+    state.postRunNoted = false;
     state.runSeq += 1;
     state.running = true;
     state.runStartedAt = Date.now();
@@ -533,15 +580,29 @@
   }
 
   function endRun(hadError) {
-    if (!state.running) return;
+    if (!state.running || state.pendingRunDone) return;
+    state.pendingRunDone = { hadError: !!hadError };
+    clearTimeout(state.runDoneTimer);
+    state.runDoneTimer = setTimeout(finalizeRun, 460);
+  }
+
+  function finalizeRun() {
+    const pending = state.pendingRunDone;
+    if (!pending || !state.running) return;
+    state.pendingRunDone = null;
+    clearTimeout(state.runDoneTimer);
     state.running = false;
+    state.lastRunEnded = true;
     const ms = Math.max(0, Date.now() - state.runStartedAt);
-    appendConsole(hadError ? "error" : "info", [(hadError ? "✕ 运行结束（有错误）" : "✓ 运行结束") + "  ·  " + ms + " ms"], "run-done");
+    appendConsole(pending.hadError ? "error" : "info", [(pending.hadError ? "✕ 运行结束（有错误）" : "✓ 运行结束") + "  ·  " + ms + " ms"], "run-done");
     setRunUi(false);
   }
 
   function stopRun() {
     if (!state.running) return;
+    clearTimeout(state.runDoneTimer);
+    state.pendingRunDone = null;
+    state.lastRunEnded = false;
     state.running = false;
     state.runSeq += 1;
     $("runFrame").srcdoc = "";
@@ -829,6 +890,72 @@
     }, delay || 120);
   }
 
+  // ---------- 可拖动分区 ----------
+  function storePaneSize(key, value) {
+    try { localStorage.setItem(key, String(value)); } catch { }
+  }
+  function paneSizeFromStore(key, fallback) {
+    try { const n = Number(localStorage.getItem(key)); return Number.isFinite(n) && n > 0 ? n : fallback; } catch { return fallback; }
+  }
+  function applyPaneSize(target, value, horizontal) {
+    if (!target) return;
+    const size = Math.round(value);
+    target.style.flex = "0 0 " + size + "px";
+    if (horizontal) target.style.width = size + "px";
+  }
+  function initPaneResizers() {
+    if (cm) cm.refresh();
+    const bottom = $("bottomPanel");
+    const sidebar = $("sidebar");
+    const outline = $("outlinePanel");
+    const savedBottom = paneSizeFromStore("lyra.js.pane.console", bottom ? bottom.getBoundingClientRect().height : 226);
+    const savedSidebar = paneSizeFromStore("lyra.js.pane.sidebar", sidebar ? sidebar.getBoundingClientRect().width : 228);
+    const savedOutline = paneSizeFromStore("lyra.js.pane.outline", outline ? outline.getBoundingClientRect().width : 216);
+    applyPaneSize(bottom, Math.min(savedBottom, Math.max(150, window.innerHeight - 190)), false);
+    applyPaneSize(sidebar, Math.min(savedSidebar, Math.max(220, window.innerWidth - 420)), true);
+    applyPaneSize(outline, Math.min(savedOutline, Math.max(220, window.innerWidth - 360)), true);
+
+    function attach(resizer, target, axis, direction, min, max, key) {
+      if (!resizer || !target) return;
+      let startPos = 0;
+      let startSize = 0;
+      let dragging = false;
+      resizer.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        dragging = true;
+        startPos = axis === "y" ? event.clientY : event.clientX;
+        startSize = target.getBoundingClientRect()[axis === "y" ? "height" : "width"];
+        resizer.classList.add("dragging");
+        document.body.style.cursor = axis === "y" ? "row-resize" : "col-resize";
+        const move = (ev) => {
+          if (!dragging) return;
+          const pos = axis === "y" ? ev.clientY : ev.clientX;
+          const delta = (pos - startPos) * direction;
+          const upper = typeof max === "function" ? max() : max;
+          const lower = typeof min === "function" ? min() : min;
+          const size = Math.max(lower, Math.min(upper, startSize + delta));
+          applyPaneSize(target, size, axis === "x");
+          if (cm) cm.refresh();
+        };
+        const up = () => {
+          if (!dragging) return;
+          dragging = false;
+          resizer.classList.remove("dragging");
+          document.body.style.cursor = "";
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", up);
+          storePaneSize(key, target.getBoundingClientRect()[axis === "y" ? "height" : "width"]);
+          if (cm) cm.refresh();
+        };
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", up);
+      });
+    }
+    attach($("bottomResizer"), bottom, "y", -1, 110, () => Math.max(150, window.innerHeight - 190), "lyra.js.pane.console");
+    attach($("sidebarResizer"), sidebar, "x", 1, 150, () => Math.max(220, window.innerWidth - 420), "lyra.js.pane.sidebar");
+    attach($("outlineResizer"), outline, "x", -1, 150, () => Math.max(220, window.innerWidth - 360), "lyra.js.pane.outline");
+  }
+
   // ---------- 代码格式化 / 检查 ----------
   function resetLint() {
     clearTimeout(state.lintTimer);
@@ -1092,6 +1219,9 @@
     $("lintBtn").addEventListener("click", () => runLint({ open: true, manual: true }));
     $("consoleTab").addEventListener("click", () => setBottomTab("console"));
     $("problemsTab").addEventListener("click", () => setBottomTab("problems"));
+    $("consoleAutoScroll").addEventListener("change", () => { state.consoleAutoScroll = $("consoleAutoScroll").checked; });
+    $("copyConsoleBtn").addEventListener("click", copyConsole);
+    initPaneResizers();
     $("findBtn").addEventListener("click", () => { if (state.find.open) closeFind(); else openFind(false); });
     $("findClose").addEventListener("click", closeFind);
     $("findPrev").addEventListener("click", () => findNext(-1));
