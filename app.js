@@ -840,6 +840,7 @@
           state.runMeta = { sourceStartLine: runner.sourceStartLine, lineCount: runner.lineCount };
           await debugPrepareInstrument(runner);
           $("runFrame").srcdoc = runner.html;
+          debugOut("V8 CDP 不可用，已回退源码插桩：" + (e && e.message ? e.message : e));
           toast("V8 调试器不可用，已回退源码插桩：" + (e && e.message ? e.message : e), true);
           return;
         }
@@ -898,7 +899,7 @@
     const ms = Math.max(0, Date.now() - state.runStartedAt);
     appendConsole(pending.hadError ? "error" : "info", [(pending.hadError ? "✕ 运行结束（有错误）" : "✓ 运行结束") + "  ·  " + ms + " ms"], "run-done");
     setRunUi(false);
-    if (state.debug.active) { clearDebugLine(); setDebugButtons(false); setDebugStatus(state.debug.backend === "cdp" ? "运行结束（断点未命中）" : "运行结束"); }
+    if (state.debug.active) { clearDebugLine(); setDebugButtons(false); setDebugStatus(state.debug.backend === "cdp" ? "运行结束（断点未命中）" : "运行结束"); if (state.debug.backend === "cdp" && !state.debug.paused) debugOut("运行结束，断点未命中"); }
   }
 
   function stopRun() {
@@ -1856,6 +1857,17 @@
     setDebugButtons(false);
   }
   function setDebugStatus(text) { const el = $("debugStatus"); if (el) el.textContent = text; }
+  function debugOut(text) {
+    try {
+      const box = $("debugOutput");
+      if (!box) return;
+      const row = document.createElement("div");
+      row.textContent = text;
+      box.appendChild(row);
+      while (box.childElementCount > 300) box.removeChild(box.firstChild);
+      box.scrollTop = box.scrollHeight;
+    } catch { }
+  }
   function setDebugButtons(paused) {
     const on = !!paused;
     ["debugResume", "debugStepOver", "debugStepInto", "debugStepOut", "debugEvalBtn"].forEach((id) => { const el = $(id); if (el) el.disabled = !on; });
@@ -1867,12 +1879,19 @@
       try {
         const res = await cdp("Debugger.setBreakpointByUrl", { lineNumber: offset + line, columnNumber: 0, urlRegex: ".*lyra-user-code\\.js.*" });
         if (res && res.breakpointId) state.debug.breakpointIds.push(res.breakpointId);
-      } catch { }
+        debugOut("断点 第" + (line + 1) + "行 → " + (res && res.breakpointId ? "已注册" : "无 ID") + "，位置 " + ((res && res.locations) ? res.locations.length : 0));
+      } catch (e) { debugOut("断点注册失败：" + (e && e.message ? e.message : e)); }
     }
   }
   async function debugPrepareCdp(runner) {
     await debugEnsure();
     state.debug.backend = "cdp";
+    debugOut("调试后端：V8 CDP");
+    try {
+      const targets = await cdp("Target.getTargets");
+      const infos = (targets && targets.targetInfos) || [];
+      debugOut("CDP 目标：" + infos.map((t) => t.type + " " + (t.url || "")).join(" | "));
+    } catch (e) { debugOut("CDP 目标读取失败：" + (e && e.message ? e.message : e)); }
     await debugClearBreakpoints();
     await debugSetCdpBreakpoints();
     if (state.debug.stepOnStart) {
@@ -2029,7 +2048,12 @@
     else sendDebugCommand(command);
   }
   function handleCdpEvent(method, params) {
-    if (method === "Debugger.paused") debugOnCdpPaused(params || {});
+    if (method === "Debugger.scriptParsed") {
+      const url = String(params && params.url || "");
+      if (/lyra-user-code|js-editor|lyra-/i.test(url)) debugOut("脚本已解析：" + url);
+      return;
+    }
+    if (method === "Debugger.paused") { debugOut("V8 已暂停"); debugOnCdpPaused(params || {}); }
     else if (method === "Debugger.resumed") debugOnResumed();
   }
   function renderDebugCallStack() {

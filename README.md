@@ -244,3 +244,8 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 - CDP 断点 URL 改用正则匹配，避免 sourceURL 解析成完整 URL 后断点不命中。
 - 「逐行运行」用同样的断点规则。
 - 运行结束若断点未命中会显示提示。
+
+## 1.21.2
+
+- 调试输出增加 CDP 诊断：后端、CDP 目标、脚本解析、断点位置。
+- 便于定位 iframe 目标/断点 URL 是否匹配。
