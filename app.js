@@ -2095,6 +2095,11 @@
       await debugSetCdpBreakpoints(childSessionId);
       try { await cdp("Runtime.runIfWaitingForDebugger", {}, childSessionId); } catch { }
       state.debug.gateReady = true;
+      for (const ms of [0, 250, 800]) {
+        setTimeout(() => {
+          try { $("runFrame").contentWindow.postMessage({ type: "js-debug-release" }, "*"); } catch { }
+        }, ms);
+      }
       tryReleaseDebugGate();
       debugOut("已附加子调试目标：" + ((info && info.type) || "?") + " " + ((info && info.url) || ""));
     } catch (e) { debugOut("附加子目标失败：" + (e && e.message ? e.message : e)); }

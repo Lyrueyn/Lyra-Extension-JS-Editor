@@ -277,3 +277,7 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 ## 1.21.8
 
 - 调试运行先注入启动闸门，等 runFrame 子目标附加、断点装好后再放行用户代码，避免 constructor 先执行导致断点来不及命中。
+
+## 1.21.9
+
+- 子目标附加后重试发送闸门放行消息，避免等待消息早于监听器丢失导致一直卡住。
