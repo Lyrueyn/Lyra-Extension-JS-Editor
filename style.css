@@ -424,3 +424,29 @@ html[data-js-theme="light"] .console-time { color: #8494a4; }
 
 .cm-runtime-line { background: rgba(255, 107, 107, .16) !important; }
 html[data-js-theme="light"] .cm-runtime-line { background: rgba(220, 60, 60, .12) !important; }
+
+
+/* Problems list + detail pane */
+.problems-layout { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.problems-layout[hidden] { display: none; }
+.problem-list { flex: 1 1 58%; min-width: 0; }
+.problem-detail { flex: 0 0 42%; min-width: 190px; max-width: 540px; overflow: auto; border-left: 1px solid var(--line); padding: 10px 13px 12px; background: color-mix(in srgb, var(--panel) 70%, var(--editor-bg)); }
+.problem-detail-empty { color: var(--muted); font-size: 11px; padding: 10px 2px; }
+.problem-detail-head { display: flex; align-items: baseline; gap: 7px; margin-bottom: 6px; }
+.problem-detail-sev { flex: 0 0 14px; font-size: 11px; font-weight: 700; color: #e8b84c; }
+.problem-detail-sev.error { color: #ff6b6b; }
+.problem-detail-title { color: var(--text); font-size: 12px; font-weight: 600; line-height: 1.5; }
+.problem-detail-meta { color: var(--muted); font: 9.5px Consolas, "Microsoft YaHei", monospace; margin-bottom: 8px; }
+.problem-detail-full { color: var(--sub); font-size: 11px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; margin-bottom: 8px; }
+.problem-detail-explain { color: var(--muted); font-size: 10.5px; line-height: 1.65; margin-bottom: 9px; border-left: 2px solid var(--line); padding-left: 8px; }
+.problem-detail-code { margin: 0 0 9px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--editor-bg); overflow: auto; font: 10px/1.6 Consolas, "Cascadia Mono", monospace; color: var(--sub); white-space: pre; }
+.problem-detail-code span { display: block; }
+.problem-detail-code .active { color: var(--text); background: rgba(255, 107, 107, .13); }
+.problem-detail-actions { display: flex; gap: 7px; }
+.problem-detail-actions button { border: 1px solid var(--line); background: var(--panel2); color: var(--sub); border-radius: 5px; padding: 4px 9px; font-size: 10.5px; cursor: pointer; }
+.problem-detail-actions button:hover { color: var(--text); border-color: var(--accent); }
+@media (max-width: 880px) {
+  .problems-layout { flex-direction: column; }
+  .problem-detail { flex: 0 0 auto; max-height: 42%; max-width: none; border-left: 0; border-top: 1px solid var(--line); }
+}
+html[data-js-theme="light"] .problem-detail { background: #f6f9fc; }

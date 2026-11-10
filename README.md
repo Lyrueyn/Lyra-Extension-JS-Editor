@@ -153,3 +153,9 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 ## 1.9.1
 
 - 语法错误时使用 acorn-loose 恢复 AST，继续报告其它静态问题，不再只剩一个语法错误。
+
+## 1.10.0
+
+- 问题列表消息精简；完整信息、规则说明和代码片段放进右侧 Detail 面板。
+- 单击问题查看详情，双击或 Detail 中的按钮跳到源码行。
+- 修复修复语法错误后静态分析被提前终止的问题（acorn-loose 恢复）。

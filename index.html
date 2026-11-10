@@ -110,7 +110,12 @@
         <div id="consoleOutput" class="console-output">
           <div class="console-empty">点击「运行文件」或「运行选中」执行 JavaScript，console.log 会输出到这里。</div>
         </div>
-        <div id="problemList" class="problem-list" hidden></div>
+        <div id="problemsLayout" class="problems-layout" hidden>
+          <div id="problemList" class="problem-list"></div>
+          <aside id="problemDetail" class="problem-detail">
+            <div class="problem-detail-empty">选择一条问题查看详情</div>
+          </aside>
+        </div>
         <div class="repl-row">
           <span class="repl-prompt">›</span>
           <input id="replInput" type="text" placeholder="输入 JavaScript 表达式，回车执行（例如 1 + 2）" spellcheck="false" autocomplete="off"/>

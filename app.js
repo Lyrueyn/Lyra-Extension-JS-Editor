@@ -1103,6 +1103,8 @@
     if (list) list.innerHTML = "";
     const tab = $("problemsTab");
     if (tab) tab.classList.remove("has-error");
+    const detail = $("problemDetail");
+    if (detail) detail.innerHTML = '<div class="problem-detail-empty">选择一条问题查看详情</div>';
   }
 
   function applyLintLineClasses() {
@@ -1121,6 +1123,143 @@
     }
   }
 
+  function shortProblem(problem) {
+    const rule = problem && problem.rule || "";
+    const message = String(problem && problem.message || "");
+    const trim = (text, n) => text.length > n ? text.slice(0, n - 1) + "…" : text;
+    let m;
+    if (rule === "no-undef") return message.replace(/^未定义的变量[：:]\s*/, "未定义 ");
+    if (rule === "no-unused-vars") return message.replace(/^已声明但未使用[：:]\s*/, "未使用 ");
+    if (rule === "type-mismatch") {
+      m = message.match(/^(number|boolean|string) 类型没有 '([^']+)' 方法$/);
+      if (m) return m[1] + " 没有 " + m[2] + " 方法";
+    }
+    if (rule === "possible-type-error") {
+      m = message.match(/^(undefined|null) 不能读取属性 '([^']+)'/);
+      if (m) return m[1] + " 不能读取 ." + m[2];
+      return trim(message, 46);
+    }
+    if (rule === "call-non-function") {
+      m = message.match(/尝试调用 (\w+) 类型/);
+      return m ? "尝试调用非函数 " + m[1] : "尝试调用非函数";
+    }
+    if (rule === "array-out-of-bounds") {
+      m = message.match(/数组长度为 (\d+).*下标 (\d+)/);
+      return m ? "数组越界 " + m[2] + " / 长度 " + m[1] : "数组下标越界";
+    }
+    if (rule === "invalid-array-length") return "new Array 非法长度";
+    if (rule === "invalid-uri") return "URI 转义非法";
+    if (rule === "invalid-json") return "JSON 字符串非法";
+    if (rule === "unhandled-promise") return "Promise 未处理";
+    if (rule === "unconditional-recursion") return "递归没有终止条件";
+    if (rule === "possible-off-by-one") return "循环可能越界";
+    if (rule === "possible-param-type-error") return "参数可能为 undefined";
+    if (rule === "no-dupe-args") return trim(message.replace(/^参数重复[：:]\s*/, "参数重复 "), 46);
+    if (rule === "no-dupe-keys") return "对象键重复";
+    if (rule === "no-debugger") return "残留 debugger";
+    if (rule === "eqeqeq") return "建议使用 ===";
+    if (rule === "no-unreachable") return "不可达代码";
+    if (rule === "syntax") return trim(message.replace(/^语法错误[：:]\s*/, "语法错误 "), 50);
+    return trim(message, 58);
+  }
+
+  function problemExplanation(rule) {
+    const map = {
+      "no-undef": "这个标识符没有声明。检查拼写，或用 let / const / var 声明；如果是外部全局变量，需要确认它确实已加载。",
+      "no-unused-vars": "声明后没有被使用。删除它，或者如果是有意保留，改成以下划线开头的名字。",
+      "type-mismatch": "这个类型没有该成员。确认变量实际是字符串还是数字；number 没有 toUpperCase，string 没有 toFixed。",
+      "possible-type-error": "对 null / undefined 读取属性或调用方法会抛出 TypeError。访问前先判空，或给一个默认值。",
+      "call-non-function": "被调用的值不是函数。确认变量是否被覆盖，或是否把数字/字符串当成函数调用。",
+      "array-out-of-bounds": "访问的下标超出了数组字面量长度，结果是 undefined，继续访问属性通常会抛 TypeError。检查循环边界。",
+      "invalid-array-length": "Array 构造器只接受非负整数长度，负数会抛出 RangeError。",
+      "invalid-uri": "decodeURIComponent / decodeURI 收到了不完整的百分号转义，会抛出 URIError。",
+      "invalid-json": "JSON.parse 的字符串不是合法 JSON，会抛出 SyntaxError。检查引号和括号。",
+      "unhandled-promise": "返回 Promise 的函数调用后没有 catch / await；异步失败会变成 Unhandled rejection。补上 catch 或 await。",
+      "unconditional-recursion": "递归函数内直接调用自身，没有判断终止条件，最终会栈溢出 RangeError。",
+      "possible-off-by-one": "循环条件用了 <= .length，最后一次循环会访问到数组末尾之后。通常应该改为 < .length。",
+      "possible-param-type-error": "调用函数时传入了 null / undefined，而函数内部会访问该参数的属性，运行时会抛 TypeError。",
+      "syntax": "代码不符合 JavaScript 语法，解析器无法完整生成语法树。修复后其余检查会恢复准确。",
+    };
+    return map[rule] || "检查该问题对应的代码，并在运行前确认变量类型、边界和异步分支。";
+  }
+
+  function renderProblemDetail() {
+    const host = $("problemDetail");
+    if (!host) return;
+    const problem = state.problems[state.problemIndex];
+    host.innerHTML = "";
+    if (!problem) {
+      host.innerHTML = '<div class="problem-detail-empty">选择一条问题查看详情</div>';
+      return;
+    }
+    const head = document.createElement("div");
+    head.className = "problem-detail-head";
+    const sev = document.createElement("span");
+    sev.className = "problem-detail-sev" + (problem.severity === "error" ? " error" : "");
+    sev.textContent = problem.severity === "error" ? "✕" : "!";
+    const title = document.createElement("span");
+    title.className = "problem-detail-title";
+    title.textContent = shortProblem(problem);
+    head.append(sev, title);
+    host.appendChild(head);
+
+    const meta = document.createElement("div");
+    meta.className = "problem-detail-meta";
+    meta.textContent = (state.currentRel || "当前文件") + "  ·  Ln " + problem.line + ", Col " + ((problem.ch || 0) + 1) + "  ·  " + (problem.severity === "error" ? "错误" : "警告") + "  ·  " + (problem.rule || "rule");
+    host.appendChild(meta);
+
+    const full = document.createElement("div");
+    full.className = "problem-detail-full";
+    full.textContent = problem.message || "";
+    host.appendChild(full);
+
+    const explain = document.createElement("div");
+    explain.className = "problem-detail-explain";
+    explain.textContent = problemExplanation(problem.rule);
+    host.appendChild(explain);
+
+    if (cm && problem.line) {
+      const code = document.createElement("pre");
+      code.className = "problem-detail-code";
+      const start = Math.max(0, (problem.line || 1) - 2);
+      const end = Math.min(cm.lineCount(), (problem.line || 1) + 1);
+      for (let i = start; i < end; i += 1) {
+        const row = document.createElement("span");
+        if (i === (problem.line || 1) - 1) row.className = "active";
+        row.textContent = String(i + 1).padStart(3, " ") + "  " + (cm.getLine(i) || "").slice(0, 180);
+        code.appendChild(row);
+      }
+      host.appendChild(code);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "problem-detail-actions";
+    const jump = document.createElement("button");
+    jump.type = "button";
+    jump.textContent = "跳到源码 Ln " + problem.line;
+    jump.addEventListener("click", () => jumpToProblem(state.problemIndex));
+    actions.appendChild(jump);
+    host.appendChild(actions);
+  }
+
+  function jumpToProblem(index) {
+    const problem = state.problems[index];
+    if (!problem || !cm) return;
+    state.problemIndex = index;
+    setBottomTab("problems");
+    cm.setCursor({ line: Math.max(0, (problem.line || 1) - 1), ch: Math.max(0, problem.ch || 0) });
+    cm.focus();
+    cm.scrollIntoView({ line: Math.max(0, (problem.line || 1) - 1), ch: Math.max(0, problem.ch || 0) }, 140);
+    renderProblemList();
+    renderProblemDetail();
+  }
+
+  function selectProblem(index) {
+    state.problemIndex = index;
+    renderProblemList();
+    renderProblemDetail();
+  }
+
   function renderProblemList() {
     const list = $("problemList");
     const count = $("problemsCount");
@@ -1129,7 +1268,9 @@
     if (tab) tab.classList.toggle("has-error", state.problems.some((p) => p.severity === "error"));
     if (!list || state.bottomTab !== "problems") return;
     if (!state.problems.length) {
+      state.problemIndex = -1;
       list.innerHTML = '<div class="problem-empty">没有发现问题</div>';
+      renderProblemDetail();
       return;
     }
     list.innerHTML = "";
@@ -1144,10 +1285,10 @@
       body.className = "problem-body";
       const loc = document.createElement("span");
       loc.className = "problem-loc";
-      loc.textContent = "Ln " + problem.line + ", Col " + (problem.ch + 1);
+      loc.textContent = "Ln " + problem.line + ", Col " + ((problem.ch || 0) + 1);
       const msg = document.createElement("span");
       msg.className = "problem-msg";
-      msg.textContent = problem.message || "";
+      msg.textContent = shortProblem(problem);
       const rule = document.createElement("span");
       rule.className = "problem-rule";
       rule.textContent = problem.rule || "";
@@ -1156,7 +1297,8 @@
       body.appendChild(rule);
       item.appendChild(icon);
       item.appendChild(body);
-      item.addEventListener("click", () => gotoProblem(index));
+      item.addEventListener("click", () => { selectProblem(index); });
+      item.addEventListener("dblclick", () => jumpToProblem(index));
       list.appendChild(item);
     });
   }
@@ -1168,19 +1310,9 @@
     $("consoleOutput").hidden = state.bottomTab !== "console";
     const repl = document.querySelector(".repl-row");
     if (repl) repl.hidden = state.bottomTab !== "console";
-    $("problemList").hidden = state.bottomTab !== "problems";
-    if (state.bottomTab === "problems") renderProblemList();
-  }
-
-  function gotoProblem(index) {
-    const problem = state.problems[index];
-    if (!problem || !cm) return;
-    state.problemIndex = index;
-    setBottomTab("problems");
-    cm.setCursor({ line: Math.max(0, (problem.line || 1) - 1), ch: Math.max(0, problem.ch || 0) });
-    cm.focus();
-    cm.scrollIntoView({ line: Math.max(0, (problem.line || 1) - 1), ch: Math.max(0, problem.ch || 0) }, 140);
-    renderProblemList();
+    const layout = $("problemsLayout");
+    if (layout) layout.hidden = state.bottomTab !== "problems";
+    if (state.bottomTab === "problems") { renderProblemList(); renderProblemDetail(); }
   }
 
   function runLint(opts) {
@@ -1232,6 +1364,7 @@
     state.problemIndex = -1;
     applyLintLineClasses();
     renderProblemList();
+    renderProblemDetail();
     if (opts.open) setBottomTab("problems");
     if (opts.manual) setStatus(problems.length ? "检查完成：发现 " + problems.length + " 个问题" : "检查完成：没有发现问题");
     return problems;
