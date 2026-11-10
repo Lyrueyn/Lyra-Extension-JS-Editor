@@ -28,7 +28,7 @@
     lintTimer: 0,
     lintLineClasses: new Map(),
     bottomTab: "console",
-    debug: { enabled: false, active: false, paused: false, backend: "", frameId: null, frames: [], pausedLine: null, breakpointIds: [], tempBreakpointId: "", stepOnStart: false, sessionId: "", sessions: [], gateWaiting: false, gateReady: false, everPaused: false },
+    debug: { enabled: false, active: false, paused: false, backend: "", frameId: null, frames: [], pausedLine: null, breakpointIds: [], tempBreakpointId: "", stepOnStart: false, sessionId: "", sessions: [], iframeSession: "", gateWaiting: false, gateReady: false, everPaused: false },
     problemIndex: -1,
     consoleAutoScroll: true,
     pendingRunDone: null,
@@ -1904,13 +1904,17 @@
   async function debugPrepareCdp(runner) {
     await debugEnsure();
     state.debug.backend = "cdp";
+    const keepIframe = state.debug.iframeSession || "";
     try {
       for (const sid of (state.debug.sessions || [])) {
+        if (sid === keepIframe) continue;
         try { await cdp("Target.detachFromTarget", { sessionId: sid }); } catch { }
       }
       $("runFrame").srcdoc = "";
       await new Promise((r) => setTimeout(r, 350));
     } catch { }
+    state.debug.sessions = keepIframe ? [keepIframe] : [];
+    state.debug.sessionId = keepIframe;
     state.debug.paused = false;
     state.debug.everPaused = false;
     state.debug.gateWaiting = false;
@@ -1920,8 +1924,14 @@
     state.debug.sessionId = "";
     state.debug.runSeq = state.runSeq;
     debugOut("调试后端：V8 CDP");
+    if (state.debug.iframeSession) {
+      try {
+        await debugSetCdpBreakpoints(state.debug.iframeSession);
+        debugOut("复用 iframe 调试会话：" + state.debug.iframeSession);
+      } catch (e) { debugOut("复用 iframe 调试会话失败：" + (e && e.message ? e.message : e)); }
+    }
     try {
-      const targets = await cdp("Target.getTargets");
+      const targets = state.debug.iframeSession ? null : await cdp("Target.getTargets");
       const infos = (targets && targets.targetInfos) || [];
       debugOut("CDP 目标：" + infos.map((t) => t.type + " " + (t.url || "")).join(" | "));
     } catch (e) { debugOut("CDP 目标读取失败：" + (e && e.message ? e.message : e)); }
@@ -1936,6 +1946,7 @@
         try {
           const att = await cdp("Target.attachToTarget", { targetId: t.targetId, flatten: true });
           if (!att || !att.sessionId) continue;
+          state.debug.iframeSession = att.sessionId;
           state.debug.sessions.push(att.sessionId);
           await cdp("Debugger.enable", {}, att.sessionId);
           await cdp("Runtime.enable", {}, att.sessionId);

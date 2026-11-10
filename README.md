@@ -299,3 +299,7 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 ## 1.21.13
 
 - 不再直接附加旧 about:srcdoc 目标，只附加 JS 编辑器 iframe；runFrame 只通过 autoAttach 作为新子目标出现，避免第二次运行命中旧目标。
+
+## 1.21.14
+
+- 复用 JS 编辑器 iframe 调试会话，不再每次运行重新 attach 产生重复会话；只重建 runFrame 子目标。
