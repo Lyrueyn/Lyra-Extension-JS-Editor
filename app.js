@@ -34,6 +34,12 @@
     runDoneTimer: 0,
     postRunNoted: false,
     lastRunEnded: false,
+    runMeta: null,
+    runWorker: null,
+    runWorkerUrl: "",
+    runWatchdog: 0,
+    runtimeLines: new Set(),
+    workerSandbox: true,
     hintSymbolsValue: null,
     hintSymbols: [],
     autoSaveTimer: 0,
@@ -466,7 +472,7 @@
     state.outlineTimer = setTimeout(renderOutline, 250);
   }
 
-  function appendConsole(level, args, extraClass) {
+  function appendConsole(level, args, extraClass, options) {
     const out = $("consoleOutput");
     const empty = out.querySelector(".console-empty");
     if (empty) empty.remove();
@@ -492,9 +498,63 @@
     const text = document.createElement("span");
     text.className = "console-text";
     text.textContent = Array.isArray(args) ? args.join(" ") : String(args == null ? "" : args);
+    if (options && options.stack) text.textContent += "\n" + options.stack;
     line.append(time, lv, text);
+    if (options && options.line) {
+      line.classList.add("clickable");
+      line.title = "点击定位到第 " + options.line + " 行";
+      line.addEventListener("click", () => jumpToLine(options.line, options.ch || 0));
+      markRuntimeLine(options.line);
+    }
     out.appendChild(line);
     if (state.consoleAutoScroll) out.scrollTop = out.scrollHeight;
+    return line;
+  }
+
+  function clearRuntimeMarks() {
+    if (!cm) return;
+    for (const line of state.runtimeLines) cm.removeLineClass(line, "background", "cm-runtime-line");
+    state.runtimeLines.clear();
+  }
+
+  function markRuntimeLine(line) {
+    if (!cm || !line) return;
+    const zero = Math.max(0, line - 1);
+    if (zero >= cm.lineCount()) return;
+    cm.addLineClass(zero, "background", "cm-runtime-line");
+    state.runtimeLines.add(zero);
+  }
+
+  function jumpToLine(line, ch) {
+    if (!cm) return;
+    setBottomTab("console");
+    const zero = Math.max(0, Number(line || 1) - 1);
+    cm.setCursor({ line: zero, ch: Math.max(0, Number(ch || 0)) });
+    cm.focus();
+    cm.scrollIntoView({ line: zero, ch: Math.max(0, Number(ch || 0)) }, 140);
+  }
+
+  function mapRunStack(stack) {
+    const meta = state.runMeta;
+    if (!stack) return { stack: "", line: 0, ch: 0 };
+    let firstLine = 0;
+    let firstCh = 0;
+    const mapped = String(stack).split("\n").map((row) => {
+      return row.replace(/(?:about:srcdoc|lyra-user-code\.js|lyra-user-worker\.js|blob:[^\s]+?):(\d+):(\d+)/g, (all, lineNo, colNo) => {
+        if (!meta) return all;
+        const userLine = Number(lineNo) - meta.sourceStartLine + 1;
+        if (userLine < 1 || userLine > meta.lineCount) return all;
+        if (!firstLine) { firstLine = userLine; firstCh = Number(colNo); }
+        return "用户代码:" + userLine + ":" + colNo;
+      });
+    });
+    return { stack: mapped.join("\n"), line: firstLine, ch: firstCh };
+  }
+
+  function appendRuntimeError(message, stack) {
+    const mapped = mapRunStack(stack || "");
+    appendConsole("error", [message || "运行错误"], "runtime-error", { stack: mapped.stack, line: mapped.line, ch: mapped.ch });
+    if (mapped.line) setStatus("运行错误：第 " + mapped.line + " 行");
   }
 
   function appendRunSeparator() {
@@ -509,6 +569,7 @@
   function clearConsole() {
     $("consoleOutput").innerHTML = '<div class="console-empty">点击「运行文件」或「运行选中」执行 JavaScript，console.log 会输出到这里。</div>';
     $("statusRun").textContent = "";
+    clearRuntimeMarks();
     state.lastRunEnded = false;
     state.postRunNoted = false;
     clearTimeout(state.runDoneTimer);
@@ -548,14 +609,51 @@
     const hooks = [
       "var __runId=" + Number(runId) + ";",
       "var __hadError=false;",
-      "var __send=function(level,args){try{parent.postMessage({type:'js-run-console',runId:__runId,level:level,args:args.map(function(v){try{if(v instanceof Error)return v.stack||v.message;if(typeof v==='object')return JSON.stringify(v);return String(v);}catch(e){return String(v);}})} ,'*');}catch(e){}};",
+      "var __send=function(level,args,meta){try{parent.postMessage({type:'js-run-console',runId:__runId,level:level,args:args.map(function(v){try{if(v instanceof Error)return v.stack||v.message;if(typeof v==='object')return JSON.stringify(v);return String(v);}catch(e){return String(v);}}),runtime:!!(meta&&meta.runtime),stack:(meta&&meta.stack)||''},'*');}catch(e){}};",
       "['log','info','warn','error','debug'].forEach(function(level){var orig=console[level];console[level]=function(){__send(level,Array.prototype.slice.call(arguments));try{if(orig)orig.apply(console,arguments);}catch(e){}};});",
-      "window.addEventListener('error',function(e){__hadError=true;__send('error',[e.message+(e.lineno?(' (line '+e.lineno+')'):'')]);});",
-      "window.addEventListener('unhandledrejection',function(e){__hadError=true;__send('error',['Unhandled rejection: '+String(e.reason)]);});",
+      "window.addEventListener('error',function(e){var err=e.error;var msg=err&&err.message?err.message:(e.message||'运行错误');var stack=err&&err.stack?err.stack:(e.message||'')+(e.lineno?(' ('+e.lineno+':'+e.colno+')'):'');__hadError=true;__send('error',[msg],{runtime:true,stack:stack});});",
+      "window.addEventListener('unhandledrejection',function(e){var r=e.reason;var msg=r&&r.message?r.message:String(r);__hadError=true;__send('error',['Unhandled rejection: '+msg],{runtime:true,stack:(r&&r.stack)?r.stack:('Unhandled rejection: '+msg)});});",
     ].join("\n");
+    const prefix = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body><script>\n(function(){\n" + hooks + "\ntry {\n";
     const done = "setTimeout(function(){parent.postMessage({type:'js-run-done',runId:__runId,hadError:__hadError},'*');},0);";
-    return "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body><script>\n(function(){\n" +
-      hooks + "\ntry {\n" + safeCode + "\n} catch (e) { __hadError=true; __send('error', [e && e.stack ? e.stack : String(e)]); }\n" + done + "\n})();\n<\/script></body></html>";
+    const suffix = "\n} catch (e) { __hadError=true; __send('error',[e && e.message ? e.message : String(e)], {runtime:true, stack:e && e.stack ? e.stack : String(e)}); }\n" + done + "\n})();\n//# sourceURL=lyra-user-code.js\n</" + "script></body></html>";
+    return { html: prefix + safeCode + suffix, sourceStartLine: prefix.split("\n").length, lineCount: safeCode.split("\n").length };
+  }
+
+  function buildWorkerRunner(code, runId) {
+    const safeCode = String(code || "").replace(/<\/script/gi, "<\\/script");
+    const hooks = [
+      "var __runId=" + Number(runId) + ";",
+      "var __hadError=false;",
+      "var __send=function(level,args,meta){try{postMessage({type:'js-run-console',runId:__runId,level:level,args:args.map(function(v){try{if(v instanceof Error)return v.stack||v.message;if(typeof v==='object')return JSON.stringify(v);return String(v);}catch(e){return String(v);}}),runtime:!!(meta&&meta.runtime),stack:(meta&&meta.stack)||''});}catch(e){}};",
+      "['log','info','warn','error','debug'].forEach(function(level){var orig=console[level];console[level]=function(){__send(level,Array.prototype.slice.call(arguments));try{if(orig)orig.apply(console,arguments);}catch(e){}};});",
+      "self.addEventListener('error',function(e){var err=e.error;var msg=err&&err.message?err.message:(e.message||'Worker 运行错误');var stack=err&&err.stack?err.stack:(e.message||'')+(e.lineno?(' ('+e.lineno+':'+e.colno+')'):'');__hadError=true;__send('error',[msg],{runtime:true,stack:stack});});",
+      "self.addEventListener('unhandledrejection',function(e){var r=e.reason;var msg=r&&r.message?r.message:String(r);__hadError=true;__send('error',['Unhandled rejection: '+msg],{runtime:true,stack:(r&&r.stack)?r.stack:('Unhandled rejection: '+msg)});});",
+    ].join("\n");
+    const prefix = "(function(){\n" + hooks + "\ntry {\n";
+    const done = "setTimeout(function(){postMessage({type:'js-run-done',runId:__runId,hadError:__hadError});},0);";
+    const suffix = "\n} catch (e) { __hadError=true; __send('error',[e && e.message ? e.message : String(e)], {runtime:true, stack:e && e.stack ? e.stack : String(e)}); }\n" + done + "\n})();\n//# sourceURL=lyra-user-worker.js";
+    return { code: prefix + safeCode + suffix, sourceStartLine: prefix.split("\n").length, lineCount: safeCode.split("\n").length };
+  }
+
+  function codeNeedsDom(code) {
+    return /\b(document|window|localStorage|sessionStorage|indexedDB|location|navigator|history|HTMLElement|Element|Node|XMLHttpRequest|alert|confirm|prompt|getComputedStyle|requestAnimationFrame|cancelAnimationFrame|MutationObserver|ResizeObserver|IntersectionObserver)\b/.test(String(code || ""));
+  }
+
+  function workerFailure(error) {
+    clearTimeout(state.runWatchdog);
+    state.runWatchdog = 0;
+    if (state.runWorker) {
+      try { state.runWorker.terminate(); } catch { }
+      state.runWorker = null;
+    }
+    if (state.runWorkerUrl) { try { URL.revokeObjectURL(state.runWorkerUrl); } catch { } state.runWorkerUrl = ""; }
+    const message = error && error.message ? error.message : String(error || "Worker 运行失败");
+    const stack = error && error.error && error.error.stack ? error.error.stack : (error && error.stack ? error.stack : message);
+    appendRuntimeError(message, stack);
+    appendConsole("error", ["✕ 运行结束（Worker 启动失败）"], "run-done");
+    state.running = false;
+    setRunUi(false);
   }
 
   function startRun(label, code) {
@@ -570,8 +668,36 @@
     state.runStartedAt = Date.now();
     appendConsole("info", ["▶ " + label + "  ·  " + fullPath(state.currentRel)], "run-start");
     setRunUi(true);
+    clearRuntimeMarks();
     try {
-      $("runFrame").srcdoc = buildRunner(code, state.runSeq);
+      const useWorker = state.workerSandbox && !codeNeedsDom(code);
+      if (state.workerSandbox && codeNeedsDom(code)) toast("代码使用 DOM API，已使用 iframe 沙箱");
+      if (useWorker && typeof Worker !== "undefined") {
+        const runner = buildWorkerRunner(code, state.runSeq);
+        state.runMeta = { sourceStartLine: runner.sourceStartLine, lineCount: runner.lineCount };
+        const blob = new Blob([runner.code], { type: "text/javascript" });
+        const url = URL.createObjectURL(blob);
+        const worker = new Worker(url);
+        state.runWorker = worker;
+        state.runWorkerUrl = url;
+        worker.onmessage = (event) => handleRunnerMessage(event.data || {});
+        worker.onerror = (event) => {
+          try { event.preventDefault(); } catch { }
+          workerFailure(event);
+        };
+        state.runWatchdog = setTimeout(() => {
+          if (!state.running) return;
+          try { worker.terminate(); } catch { }
+          state.runWorker = null;
+          appendRuntimeError("运行超时（8 秒），已终止 Worker（可能是死循环或未结束的任务）", "");
+          state.running = false;
+          setRunUi(false);
+        }, 8000);
+      } else {
+        const runner = buildRunner(code, state.runSeq);
+        state.runMeta = { sourceStartLine: runner.sourceStartLine, lineCount: runner.lineCount };
+        $("runFrame").srcdoc = runner.html;
+      }
     } catch (e) {
       appendConsole("error", [String(e && e.message ? e.message : e)]);
       state.running = false;
@@ -593,6 +719,8 @@
     clearTimeout(state.runDoneTimer);
     state.running = false;
     state.lastRunEnded = true;
+    clearTimeout(state.runWatchdog);
+    state.runWatchdog = 0;
     const ms = Math.max(0, Date.now() - state.runStartedAt);
     appendConsole(pending.hadError ? "error" : "info", [(pending.hadError ? "✕ 运行结束（有错误）" : "✓ 运行结束") + "  ·  " + ms + " ms"], "run-done");
     setRunUi(false);
@@ -605,6 +733,10 @@
     state.lastRunEnded = false;
     state.running = false;
     state.runSeq += 1;
+    clearTimeout(state.runWatchdog);
+    state.runWatchdog = 0;
+    if (state.runWorker) { try { state.runWorker.terminate(); } catch { } state.runWorker = null; }
+    if (state.runWorkerUrl) { try { URL.revokeObjectURL(state.runWorkerUrl); } catch { } state.runWorkerUrl = ""; }
     $("runFrame").srcdoc = "";
     appendConsole("error", ["■ 已停止运行"], "run-stop");
     setRunUi(false);
@@ -1203,6 +1335,16 @@
     renderOutline();
   }
 
+  function handleRunnerMessage(d) {
+    if (!d || d.runId !== state.runSeq) return;
+    if (d.type === "js-run-console") {
+      if (d.runtime) appendRuntimeError(Array.isArray(d.args) ? d.args.join(" ") : String(d.args || ""), d.stack || "");
+      else appendConsole(d.level, d.args);
+      return;
+    }
+    if (d.type === "js-run-done") endRun(!!d.hadError);
+  }
+
   function bind() {
     $("themeSelect").addEventListener("change", () => applyTheme($("themeSelect").value));
     $("saveBtn").addEventListener("click", () => saveNow({ manual: true }).catch(showError));
@@ -1220,6 +1362,7 @@
     $("consoleTab").addEventListener("click", () => setBottomTab("console"));
     $("problemsTab").addEventListener("click", () => setBottomTab("problems"));
     $("consoleAutoScroll").addEventListener("change", () => { state.consoleAutoScroll = $("consoleAutoScroll").checked; });
+    $("workerSandbox").addEventListener("change", () => { state.workerSandbox = $("workerSandbox").checked; });
     $("copyConsoleBtn").addEventListener("click", copyConsole);
     initPaneResizers();
     $("findBtn").addEventListener("click", () => { if (state.find.open) closeFind(); else openFind(false); });
@@ -1254,9 +1397,7 @@
     });
     window.addEventListener("message", (event) => {
       if (event.source !== $("runFrame").contentWindow) return;
-      const d = event.data || {};
-      if (d.type === "js-run-console") { if (d.runId === state.runSeq) appendConsole(d.level, d.args); return; }
-      if (d.type === "js-run-done") { if (d.runId === state.runSeq) endRun(!!d.hadError); }
+      handleRunnerMessage(event.data || {});
     });
     window.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && state.find.open) { event.preventDefault(); closeFind(); }

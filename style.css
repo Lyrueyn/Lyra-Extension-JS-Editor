@@ -421,3 +421,6 @@ html[data-js-theme="light"] .cm-lint-line-warning { background: rgba(190, 135, 1
 .console-run-sep { height: 1px; background: var(--line); opacity: .5; margin: 7px 3px; }
 html[data-js-theme="light"] .console-line:hover { background: rgba(15,40,60,.035); }
 html[data-js-theme="light"] .console-time { color: #8494a4; }
+
+.cm-runtime-line { background: rgba(255, 107, 107, .16) !important; }
+html[data-js-theme="light"] .cm-runtime-line { background: rgba(220, 60, 60, .12) !important; }

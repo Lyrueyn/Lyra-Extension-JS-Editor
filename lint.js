@@ -218,6 +218,75 @@
       }
     }
 
+    const promiseFunctions = new Set();
+    function containsPromise(node) {
+      if (!node || typeof node.type !== "string") return false;
+      if (node.type === "NewExpression" && node.callee && node.callee.name === "Promise") return true;
+      if (node.type === "ReturnStatement" && node.argument) {
+        if (node.argument.type === "NewExpression" && node.argument.callee && node.argument.callee.name === "Promise") return true;
+        if (node.argument.type === "CallExpression" && node.argument.callee && /^Promise\./.test(node.argument.callee.name || "")) return true;
+      }
+      let found = false;
+      forEachChild(node, (child) => { if (!found && containsPromise(child)) found = true; });
+      return found;
+    }
+    function collectPromiseFunctions(node) {
+      if (!node || typeof node.type !== "string") return;
+      if (node.type === "FunctionDeclaration" && node.id && (node.async || containsPromise(node.body))) promiseFunctions.add(node.id.name);
+      if (node.type === "VariableDeclarator" && node.id && node.id.type === "Identifier" && node.init) {
+        if (node.init.type === "ArrowFunctionExpression" || node.init.type === "FunctionExpression") {
+          if (node.init.async || containsPromise(node.init.body)) promiseFunctions.add(node.id.name);
+        }
+      }
+      forEachChild(node, collectPromiseFunctions);
+    }
+    collectPromiseFunctions(ast);
+
+    const unsafeParams = new Map();
+    function paramNamesOf(node) {
+      const out = [];
+      for (const param of node.params || []) {
+        (function collect(p, index) {
+          if (!p) return;
+          if (p.type === "Identifier") out.push(p.name);
+          else if (p.type === "AssignmentPattern") collect(p.left);
+          else if (p.type === "RestElement") collect(p.argument);
+          else if (p.type === "ObjectPattern") for (const prop of p.properties || []) collect(prop.value || prop.argument);
+          else if (p.type === "ArrayPattern") for (const item of p.elements || []) collect(item);
+        })(param);
+      }
+      return out;
+    }
+    function collectUnsafe(node) {
+      if (!node || typeof node.type !== "string") return;
+      if (node.type === "FunctionDeclaration" && node.id && node.params) {
+        const params = paramNamesOf(node);
+        const names = new Set(params);
+        const unsafe = new Set();
+        const scan = (child) => {
+          if (!child || typeof child.type !== "string") return;
+          if (child.type === "MemberExpression" && child.object && child.object.type === "Identifier" && names.has(child.object.name)) unsafe.add(child.object.name);
+          forEachChild(child, scan);
+        };
+        scan(node.body);
+        if (unsafe.size) unsafeParams.set(node.id.name, unsafe);
+      }
+      if (node.type === "VariableDeclarator" && node.id && node.id.type === "Identifier" && node.init && (node.init.type === "ArrowFunctionExpression" || node.init.type === "FunctionExpression") && node.init.params) {
+        const params = paramNamesOf(node.init);
+        const names = new Set(params);
+        const unsafe = new Set();
+        const scan = (child) => {
+          if (!child || typeof child.type !== "string") return;
+          if (child.type === "MemberExpression" && child.object && child.object.type === "Identifier" && names.has(child.object.name)) unsafe.add(child.object.name);
+          forEachChild(child, scan);
+        };
+        scan(node.init.body);
+        if (unsafe.size) unsafeParams.set(node.id.name, unsafe);
+      }
+      forEachChild(node, collectUnsafe);
+    }
+    collectUnsafe(ast);
+
     function walkChecks(node) {
       if (!node || typeof node.type !== "string") return;
       if (node.type === "BinaryExpression" && (node.operator === "==" || node.operator === "!=")) {
@@ -225,6 +294,33 @@
         if (!isNull(node.left) && !isNull(node.right)) pushProblem(node.loc.start.line, node.loc.start.column, "warning", "eqeqeq", "建议使用 " + node.operator + "= 而不是 " + node.operator);
       }
       if (node.type === "DebuggerStatement") pushProblem(node.loc.start.line, node.loc.start.column, "warning", "no-debugger", "不要在生产代码中留下 debugger");
+      if (node.type === "ExpressionStatement" && node.expression && node.expression.type === "CallExpression") {
+        const callee = node.expression.callee;
+        if (callee && callee.type === "Identifier" && promiseFunctions.has(callee.name)) {
+          pushProblem(callee.loc.start.line, callee.loc.start.column, "warning", "unhandled-promise", "调用了返回 Promise 的函数 '" + callee.name + "'，但没有 catch / await，可能产生未处理的异步错误");
+        }
+      }
+      if ((node.type === "WhileStatement" || node.type === "ForStatement") && node.test && node.test.type === "BinaryExpression" && (node.test.operator === "<=" || node.test.operator === ">=")) {
+        const sides = [node.test.left, node.test.right];
+        const lengthSide = sides.find((side) => side && side.type === "MemberExpression" && side.property && side.property.name === "length");
+        if (lengthSide) pushProblem(node.test.loc.start.line, node.test.loc.start.column, "warning", "possible-off-by-one", "循环条件使用 " + node.test.operator + " .length，最后一次循环可能越界");
+      }
+      if (node.type === "MemberExpression" && !node.computed && node.object && ((node.object.type === "Identifier" && node.object.name === "undefined") || (node.object.type === "Literal" && node.object.value === null))) {
+        pushProblem(node.loc.start.line, node.loc.start.column, "warning", "possible-type-error", "对 " + (node.object.name || "null") + " 访问属性会抛出 TypeError");
+      }
+      if (node.type === "CallExpression" && node.callee && node.callee.type === "Identifier" && unsafeParams.has(node.callee.name)) {
+        const unsafe = unsafeParams.get(node.callee.name);
+        const args = node.arguments || [];
+        for (let i = 0; i < args.length; i += 1) {
+          const arg = args[i];
+          const isNull = arg && arg.type === "Literal" && arg.value === null;
+          const isUndefined = arg && arg.type === "Identifier" && arg.name === "undefined";
+          if (isNull || isUndefined) {
+            const callName = node.callee.name;
+            if (unsafe.size) pushProblem(arg.loc.start.line, arg.loc.start.column, "warning", "possible-param-type-error", "调用 '" + callName + "' 时第 " + (i + 1) + " 个参数是 " + (isNull ? "null" : "undefined") + "，函数内可能访问它的属性并抛出 TypeError");
+          }
+        }
+      }
       if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") checkFunction(node);
       if (node.type === "ObjectExpression") {
         const keys = new Set();

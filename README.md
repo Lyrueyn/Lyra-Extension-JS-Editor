@@ -142,3 +142,10 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 - Console 改为紧凑单行布局：时间 + 级别 + 内容，减少分隔线和空白；新增自动滚动开关与复制按钮。
 - 运行结束改为等待最后输出后 460ms 静默才标记，避免异步输出出现在“运行结束”之后；真正晚到的输出会标注“运行结束后输出”。
 - 悬停定位增加越界保护，拖动布局时不会报错。
+
+## 1.8.0
+
+- 检查增强：新增未处理 Promise、循环 `<= .length` 越界、undef/null 属性访问、undefined/null 参数传给会访问属性的函数。
+- 运行时错误：Worker/iframe 捕获错误后显示堆栈，并把生成代码行号映射回源文件行号；控制台错误行可点击定位，编辑器对应行红色标记。
+- Worker 沙箱：无 DOM 的代码默认在 Worker 执行，可强制终止；带 DOM API 的代码自动改用 iframe sandbox。8 秒超时终止死循环。
+- Syntax/未定义变量等继续实时检查；问题面板与行背景同步。
