@@ -131,3 +131,7 @@ JavaScript 编辑器是「编辑器」扩展的 editor-plugin 插件。
 - 底部面板新增「问题」标签：显示行号/规则/信息，点击跳到对应代码；编辑器行背景同步标记。
 - 自动检查：编辑后 900ms 自动检查；工具栏「检查」按钮 / Ctrl+Shift+M 手动检查。
 - 「格式化」「检查」加入工具栏。
+
+## License
+
+GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
