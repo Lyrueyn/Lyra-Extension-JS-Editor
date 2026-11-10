@@ -149,3 +149,7 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 - 运行时错误：Worker/iframe 捕获错误后显示堆栈，并把生成代码行号映射回源文件行号；控制台错误行可点击定位，编辑器对应行红色标记。
 - Worker 沙箱：无 DOM 的代码默认在 Worker 执行，可强制终止；带 DOM API 的代码自动改用 iframe sandbox。8 秒超时终止死循环。
 - Syntax/未定义变量等继续实时检查；问题面板与行背景同步。
+
+## 1.9.1
+
+- 语法错误时使用 acorn-loose 恢复 AST，继续报告其它静态问题，不再只剩一个语法错误。
