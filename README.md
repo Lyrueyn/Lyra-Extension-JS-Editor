@@ -303,3 +303,7 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 ## 1.21.14
 
 - 复用 JS 编辑器 iframe 调试会话，不再每次运行重新 attach 产生重复会话；只重建 runFrame 子目标。
+
+## 1.21.15
+
+- runFrame 子目标改为每次运行后主动轮询 Target.getTargets 并直接附加，不再依赖 autoAttach 事件；第二次运行也能装断点。

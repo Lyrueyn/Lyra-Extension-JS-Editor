@@ -28,7 +28,7 @@
     lintTimer: 0,
     lintLineClasses: new Map(),
     bottomTab: "console",
-    debug: { enabled: false, active: false, paused: false, backend: "", frameId: null, frames: [], pausedLine: null, breakpointIds: [], tempBreakpointId: "", stepOnStart: false, sessionId: "", sessions: [], iframeSession: "", gateWaiting: false, gateReady: false, everPaused: false },
+    debug: { enabled: false, active: false, paused: false, backend: "", frameId: null, frames: [], pausedLine: null, breakpointIds: [], tempBreakpointId: "", stepOnStart: false, sessionId: "", sessions: [], iframeSession: "", childTargets: {}, childSession: "", gateWaiting: false, gateReady: false, everPaused: false },
     problemIndex: -1,
     consoleAutoScroll: true,
     pendingRunDone: null,
@@ -835,6 +835,7 @@
         try {
           await debugPrepareCdp(normal);
           $("runFrame").srcdoc = normal.html;
+          await debugAttachCurrentChild();
           const debugSeq = state.runSeq;
           setTimeout(() => {
             if (state.runSeq === debugSeq && state.running && !state.debug.paused) endRun(false);
@@ -1914,6 +1915,8 @@
       await new Promise((r) => setTimeout(r, 350));
     } catch { }
     state.debug.sessions = keepIframe ? [keepIframe] : [];
+    state.debug.childTargets = {};
+    state.debug.childSession = "";
     state.debug.sessionId = keepIframe;
     state.debug.paused = false;
     state.debug.everPaused = false;
@@ -2086,6 +2089,36 @@
     runFile();
   }
 
+  async function debugAttachCurrentChild() {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      try {
+        const targets = await cdp("Target.getTargets");
+        const infos = (targets && targets.targetInfos) || [];
+        const candidates = infos.filter((t) => t.type === "iframe" && /about:srcdoc/i.test(String(t.url || "")));
+        const fresh = candidates.find((t) => !state.debug.childTargets[t.targetId]) || candidates[0];
+        if (fresh) {
+          if (state.debug.childTargets[fresh.targetId]) return;
+          const att = await cdp("Target.attachToTarget", { targetId: fresh.targetId, flatten: true });
+          if (att && att.sessionId) {
+            state.debug.childTargets[fresh.targetId] = att.sessionId;
+            state.debug.childSession = att.sessionId;
+            state.debug.sessions.push(att.sessionId);
+            await cdp("Debugger.enable", {}, att.sessionId);
+            await cdp("Runtime.enable", {}, att.sessionId);
+            try { await cdp("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, att.sessionId); } catch { }
+            await debugSetCdpBreakpoints(att.sessionId);
+            try { await cdp("Runtime.runIfWaitingForDebugger", {}, att.sessionId); } catch { }
+            state.debug.gateReady = true;
+            debugOut("直接附加 runFrame 子目标：" + fresh.targetId);
+            tryReleaseDebugGate();
+            return;
+          }
+        }
+      } catch (e) { debugOut("直接附加 runFrame 失败：" + (e && e.message ? e.message : e)); }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    debugOut("没有找到 runFrame 子目标");
+  }
   function tryReleaseDebugGate() {
     if (!state.debug.gateWaiting || !state.debug.gateReady) return;
     if (state.debug.runSeq !== state.runSeq) return;
@@ -2129,7 +2162,9 @@
   }
   async function attachChildTarget(childSessionId, info) {
     if (!childSessionId || state.debug.sessions.indexOf(childSessionId) >= 0) return;
+    if (info && info.targetId && state.debug.childTargets[info.targetId]) return;
     state.debug.sessions.push(childSessionId);
+    if (info && info.targetId) state.debug.childTargets[info.targetId] = childSessionId;
     try {
       await cdp("Debugger.enable", {}, childSessionId);
       await cdp("Runtime.enable", {}, childSessionId);
