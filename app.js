@@ -1910,7 +1910,11 @@
           state.debug.sessions.push(att.sessionId);
           await cdp("Debugger.enable", {}, att.sessionId);
           await cdp("Runtime.enable", {}, att.sessionId);
-          try { await cdp("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, att.sessionId); } catch { }
+          try {
+            const aa = await cdp("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, att.sessionId);
+            debugOut("iframe autoAttach 已启用");
+            if (aa) debugOut("iframe autoAttach 返回：" + JSON.stringify(aa));
+          } catch (e) { debugOut("iframe autoAttach 失败：" + (e && e.message ? e.message : e)); }
           await debugSetCdpBreakpoints(att.sessionId);
           debugOut("已附加 iframe 调试目标：" + att.sessionId);
         } catch (e) { debugOut("附加 iframe 目标失败：" + (e && e.message ? e.message : e)); }
@@ -2085,6 +2089,7 @@
   }
   function handleCdpEvent(method, params, sessionId) {
     if (method === "Target.attachedToTarget") {
+      debugOut("收到子目标事件：" + JSON.stringify((params && params.targetInfo) || {}));
       attachChildTarget(params && params.sessionId, params && params.targetInfo);
       return;
     }
@@ -2097,7 +2102,8 @@
     }
     if (method === "Debugger.scriptParsed") {
       const url = String(params && params.url || "");
-      if (/lyra-user-code|js-editor|lyra-|srcdoc|blob/i.test(url)) debugOut("脚本已解析：" + (sessionId ? "[iframe] " : "") + (url || "(空 URL)"));
+      state.debug.scriptCount = (state.debug.scriptCount || 0) + 1;
+      if (state.debug.scriptCount <= 30) debugOut("脚本已解析：" + (sessionId ? "[iframe] " : "") + (url || "(空 URL)") + " scriptId=" + (params && params.scriptId));
       return;
     }
     if (method === "Debugger.paused") { debugOut("V8 已暂停" + (sessionId ? "（iframe）" : "")); debugOnCdpPaused(params || {}, sessionId); }

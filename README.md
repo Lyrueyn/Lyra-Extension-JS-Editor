@@ -265,3 +265,7 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 
 - iframe 会话开启 Target.setAutoAttach，递归附加 runFrame 子目标。
 - 子目标 waitForDebuggerOnStart=true，先装断点再放行脚本。
+
+## 1.21.6
+
+- 调试输出记录所有 scriptParsed URL、autoAttach 返回和子目标事件，用于定位脚本所在目标。
