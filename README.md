@@ -273,3 +273,7 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 ## 1.21.7
 
 - 外壳转发的 editor.cdp-event 走 window message；JS 编辑器补上监听，调试事件终于可达。
+
+## 1.21.8
+
+- 调试运行先注入启动闸门，等 runFrame 子目标附加、断点装好后再放行用户代码，避免 constructor 先执行导致断点来不及命中。

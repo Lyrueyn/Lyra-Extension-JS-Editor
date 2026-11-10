@@ -28,7 +28,7 @@
     lintTimer: 0,
     lintLineClasses: new Map(),
     bottomTab: "console",
-    debug: { enabled: false, active: false, paused: false, backend: "", frameId: null, frames: [], pausedLine: null, breakpointIds: [], tempBreakpointId: "", stepOnStart: false, sessionId: "", sessions: [] },
+    debug: { enabled: false, active: false, paused: false, backend: "", frameId: null, frames: [], pausedLine: null, breakpointIds: [], tempBreakpointId: "", stepOnStart: false, sessionId: "", sessions: [], gateWaiting: false, gateReady: false },
     problemIndex: -1,
     consoleAutoScroll: true,
     pendingRunDone: null,
@@ -620,7 +620,7 @@
     $("statusRun").textContent = running ? "运行中…" : "";
   }
 
-  function buildRunner(code, runId) {
+  function buildRunner(code, runId, debugGate) {
     const safeCode = String(code || "").replace(/<\/script/gi, "<\\/script");
     const hooks = [
       "var __runId=" + Number(runId) + ";",
@@ -630,7 +630,8 @@
       "window.addEventListener('error',function(e){var err=e.error;var msg=err&&err.message?err.message:(e.message||'运行错误');var stack=err&&err.stack?err.stack:(e.message||'')+(e.lineno?(' ('+e.lineno+':'+e.colno+')'):'');__hadError=true;__send('error',[msg],{runtime:true,stack:stack});});",
       "window.addEventListener('unhandledrejection',function(e){var r=e.reason;var msg=r&&r.message?r.message:String(r);__hadError=true;__send('error',['Unhandled rejection: '+msg],{runtime:true,stack:(r&&r.stack)?r.stack:('Unhandled rejection: '+msg)});});",
     ].join("\n");
-    const prefix = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body><script>\n(function(){\n" + hooks + "\ntry {\n";
+    const gate = debugGate ? "parent.postMessage({type:'js-debug-waiting'},'*');\nawait new Promise(function(resolve){var h=function(e){if(e&&e.data&&e.data.type==='js-debug-release'){window.removeEventListener('message',h);resolve();}};window.addEventListener('message',h);});\n" : "";
+    const prefix = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body><script>\n" + (debugGate ? "(async function(){\n" : "(function(){\n") + hooks + "\ntry {\n" + gate;
     const done = "setTimeout(function(){parent.postMessage({type:'js-run-done',runId:__runId,hadError:__hadError},'*');},0);";
     const suffix = "\n} catch (e) { __hadError=true; __send('error',[e && e.message ? e.message : String(e)], {runtime:true, stack:e && e.stack ? e.stack : String(e)}); }\n" + done + "\n})();\n//# sourceURL=lyra-user-code.js\n</" + "script></body></html>";
     return { html: prefix + safeCode + suffix, sourceStartLine: prefix.split("\n").length, lineCount: safeCode.split("\n").length };
@@ -829,7 +830,7 @@
       if (debugging) {
         const stepOnStart = !!state.debug.stepOnStart;
         state.debug.stepOnStart = false;
-        const normal = buildRunner(code, state.runSeq);
+        const normal = buildRunner(code, state.runSeq, true);
         state.runMeta = { sourceStartLine: normal.sourceStartLine, lineCount: normal.lineCount };
         try {
           await debugPrepareCdp(normal);
@@ -1922,6 +1923,7 @@
       }
     } catch (e) { debugOut("CDP 目标读取失败：" + (e && e.message ? e.message : e)); }
     await debugSetCdpBreakpoints("");
+    setTimeout(() => { state.debug.gateReady = true; tryReleaseDebugGate(); }, 5000);
     if (state.debug.stepOnStart) {
       try {
         const offset = Math.max(0, (state.runMeta && state.runMeta.sourceStartLine ? state.runMeta.sourceStartLine : 1) - 1);
@@ -2043,6 +2045,13 @@
     runFile();
   }
 
+  function tryReleaseDebugGate() {
+    if (!state.debug.gateWaiting || !state.debug.gateReady) return;
+    state.debug.gateWaiting = false;
+    state.debug.gateReady = false;
+    const f = $("runFrame");
+    try { f.contentWindow.postMessage({ type: "js-debug-release" }, "*"); debugOut("调试目标就绪，放行用户代码"); } catch { }
+  }
   function sendDebugCommand(command, extra) {
     const frame = $("runFrame");
     if (!frame || !frame.contentWindow) return;
@@ -2085,6 +2094,8 @@
       try { await cdp("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, childSessionId); } catch { }
       await debugSetCdpBreakpoints(childSessionId);
       try { await cdp("Runtime.runIfWaitingForDebugger", {}, childSessionId); } catch { }
+      state.debug.gateReady = true;
+      tryReleaseDebugGate();
       debugOut("已附加子调试目标：" + ((info && info.type) || "?") + " " + ((info && info.url) || ""));
     } catch (e) { debugOut("附加子目标失败：" + (e && e.message ? e.message : e)); }
   }
@@ -2271,6 +2282,7 @@
       else appendConsole(d.level, d.args);
       return;
     }
+    if (d.type === "js-debug-waiting") { state.debug.gateWaiting = true; debugOut("等待调试目标就绪…"); tryReleaseDebugGate(); return; }
     if (d.type === "js-debug-paused") { debugOnPausedLocal(d); return; }
     if (d.type === "js-debug-eval") { const out = $("debugEvalResult"); if (out) out.textContent = String(d.value == null ? "" : d.value); return; }
     if (d.type === "js-run-done") endRun(!!d.hadError);
