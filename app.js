@@ -28,7 +28,7 @@
     lintTimer: 0,
     lintLineClasses: new Map(),
     bottomTab: "console",
-    debug: { enabled: false, active: false, paused: false, backend: "", frameId: null, frames: [], pausedLine: null, breakpointIds: [], tempBreakpointId: "", stepOnStart: false, sessionId: "", sessions: [], gateWaiting: false, gateReady: false },
+    debug: { enabled: false, active: false, paused: false, backend: "", frameId: null, frames: [], pausedLine: null, breakpointIds: [], tempBreakpointId: "", stepOnStart: false, sessionId: "", sessions: [], gateWaiting: false, gateReady: false, everPaused: false },
     problemIndex: -1,
     consoleAutoScroll: true,
     pendingRunDone: null,
@@ -835,6 +835,9 @@
         try {
           await debugPrepareCdp(normal);
           $("runFrame").srcdoc = normal.html;
+          setTimeout(() => {
+            if (state.running && !state.debug.paused) endRun(false);
+          }, 15000);
           return;
         } catch (e) {
           state.debug.backend = "instrument";
@@ -901,7 +904,15 @@
     const ms = Math.max(0, Date.now() - state.runStartedAt);
     appendConsole(pending.hadError ? "error" : "info", [(pending.hadError ? "✕ 运行结束（有错误）" : "✓ 运行结束") + "  ·  " + ms + " ms"], "run-done");
     setRunUi(false);
-    if (state.debug.active) { clearDebugLine(); setDebugButtons(false); setDebugStatus(state.debug.backend === "cdp" ? "运行结束（断点未命中）" : "运行结束"); if (state.debug.backend === "cdp" && !state.debug.paused) debugOut("运行结束，断点未命中"); }
+    if (state.debug.active) {
+      state.debug.paused = false;
+      clearDebugLine();
+      setDebugButtons(false);
+      const missed = state.debug.backend === "cdp" && !state.debug.everPaused;
+      setDebugStatus(missed ? "运行结束（断点未命中）" : "运行结束");
+      if (missed) debugOut("运行结束，断点未命中");
+      state.debug.everPaused = false;
+    }
   }
 
   function stopRun() {
@@ -1942,6 +1953,7 @@
   }
   function debugOnCdpPaused(params, sessionId) {
     state.debug.paused = true;
+    state.debug.everPaused = true;
     if (sessionId) state.debug.sessionId = sessionId;
     state.debug.frames = Array.isArray(params.callFrames) ? params.callFrames : [];
     const frame = state.debug.frames.find((f) => /lyra-user-code\.js/i.test(String(f.url || ""))) || state.debug.frames[0];
@@ -1998,6 +2010,7 @@
   }
   function debugOnResumed() {
     state.debug.paused = false;
+    if (!state.running) { setDebugButtons(false); clearDebugLine(); setDebugStatus("运行结束"); return; }
     state.debug.vars = {};
     clearDebugLine();
     setDebugButtons(false);

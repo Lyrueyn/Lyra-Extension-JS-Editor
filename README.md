@@ -281,3 +281,8 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 ## 1.21.9
 
 - 子目标附加后重试发送闸门放行消息，避免等待消息早于监听器丢失导致一直卡住。
+
+## 1.21.10
+
+- 修正最后一步后状态被 Debugger.resumed 覆盖为「运行中」的问题。
+- 增加调试运行 15 秒兜底结束，避免 done 消息丢失后一直运行中。
