@@ -28,7 +28,7 @@
     lintTimer: 0,
     lintLineClasses: new Map(),
     bottomTab: "console",
-    debug: { enabled: false, active: false, paused: false, frameId: null, frames: [], pausedLine: null, breakpointIds: [] },
+    debug: { enabled: false, active: false, paused: false, backend: "", frameId: null, frames: [], pausedLine: null, breakpointIds: [], tempBreakpointId: "", stepOnStart: false },
     problemIndex: -1,
     consoleAutoScroll: true,
     pendingRunDone: null,
@@ -815,12 +815,23 @@
     try {
       const debugging = allowDebug && state.debug.active;
       if (debugging) {
-        const runner = buildDebugRunner(code, state.runSeq, Array.from(currentBreakpoints()).map((n) => n + 1), !!state.debug.stepOnStart);
+        const stepOnStart = !!state.debug.stepOnStart;
         state.debug.stepOnStart = false;
-        state.runMeta = { sourceStartLine: runner.sourceStartLine, lineCount: runner.lineCount };
-        await debugPrepare(runner);
-        $("runFrame").srcdoc = runner.html;
-        return;
+        const normal = buildRunner(code, state.runSeq);
+        state.runMeta = { sourceStartLine: normal.sourceStartLine, lineCount: normal.lineCount };
+        try {
+          await debugPrepareCdp(normal);
+          $("runFrame").srcdoc = normal.html;
+          return;
+        } catch (e) {
+          state.debug.backend = "instrument";
+          const runner = buildDebugRunner(code, state.runSeq, Array.from(currentBreakpoints()).map((n) => n + 1), stepOnStart);
+          state.runMeta = { sourceStartLine: runner.sourceStartLine, lineCount: runner.lineCount };
+          await debugPrepareInstrument(runner);
+          $("runFrame").srcdoc = runner.html;
+          toast("V8 调试器不可用，已回退源码插桩：" + (e && e.message ? e.message : e), true);
+          return;
+        }
       }
       const useWorker = state.workerSandbox && !codeNeedsDom(code);
       if (state.workerSandbox && codeNeedsDom(code)) toast("代码使用 DOM API，已使用 iframe 沙箱");
@@ -1824,7 +1835,7 @@
     }
     state.debug.breakpointIds = [];
   }
-  async function debugPrepare(runner) {
+  async function debugPrepareInstrument(runner) {
     state.debug.paused = false;
     state.debug.line = null;
     state.debug.vars = {};
@@ -1838,6 +1849,63 @@
     const on = !!paused;
     ["debugResume", "debugStepOver", "debugStepInto", "debugStepOut", "debugEvalBtn"].forEach((id) => { const el = $(id); if (el) el.disabled = !on; });
     const pause = $("debugPause"); if (pause) pause.disabled = !state.running || on;
+  }
+  async function debugSetCdpBreakpoints() {
+    const offset = Math.max(0, (state.runMeta && state.runMeta.sourceStartLine ? state.runMeta.sourceStartLine : 1) - 1);
+    for (const line of currentBreakpoints()) {
+      try {
+        const res = await cdp("Debugger.setBreakpointByUrl", { lineNumber: offset + line, columnNumber: 0, url: "lyra-user-code.js" });
+        if (res && res.breakpointId) state.debug.breakpointIds.push(res.breakpointId);
+      } catch { }
+    }
+  }
+  async function debugPrepareCdp(runner) {
+    await debugEnsure();
+    state.debug.backend = "cdp";
+    await debugClearBreakpoints();
+    await debugSetCdpBreakpoints();
+    if (state.debug.stepOnStart) {
+      try {
+        const offset = Math.max(0, (state.runMeta && state.runMeta.sourceStartLine ? state.runMeta.sourceStartLine : 1) - 1);
+        const res = await cdp("Debugger.setBreakpointByUrl", { lineNumber: offset, columnNumber: 0, url: "lyra-user-code.js" });
+        state.debug.tempBreakpointId = res && res.breakpointId || "";
+        if (state.debug.tempBreakpointId) state.debug.breakpointIds.push(state.debug.tempBreakpointId);
+      } catch { }
+    }
+    state.debug.paused = false;
+    state.debug.line = null;
+    state.debug.frames = [];
+    state.debug.pausedLine = null;
+    clearDebugLine();
+    setDebugStatus("V8 调试器已就绪，运行中…");
+    setDebugButtons(false);
+  }
+  function debugOnCdpPaused(params) {
+    state.debug.paused = true;
+    state.debug.frames = Array.isArray(params.callFrames) ? params.callFrames : [];
+    const frame = state.debug.frames.find((f) => /lyra-user-code\.js/i.test(String(f.url || ""))) || state.debug.frames[0];
+    state.debug.frameId = frame ? frame.callFrameId : null;
+    state.debug.selectedFrame = frame ? state.debug.frames.indexOf(frame) : 0;
+    const line = debugFrameSourceLine(frame);
+    state.debug.line = line;
+    clearDebugLine();
+    if (cm && line >= 0 && line < cm.lineCount()) {
+      state.debug.pausedLine = line;
+      cm.addLineClass(line, "background", "cm-debug-paused");
+      cm.setCursor({ line: line, ch: (frame && frame.location && frame.location.columnNumber) || 0 });
+      cm.scrollIntoView({ line: line, ch: 0 }, 100);
+    }
+    if (state.debug.tempBreakpointId && params.hitBreakpoints && params.hitBreakpoints.indexOf(state.debug.tempBreakpointId) >= 0) {
+      const id = state.debug.tempBreakpointId;
+      state.debug.tempBreakpointId = "";
+      state.debug.breakpointIds = state.debug.breakpointIds.filter((x) => x !== id);
+      cdp("Debugger.removeBreakpoint", { breakpointId: id }).catch(() => { });
+    }
+    setBottomTab("debug");
+    setDebugButtons(true);
+    setDebugStatus("已暂停" + (frame && frame.functionName ? " · " + frame.functionName : "") + (line >= 0 ? " · 第 " + (line + 1) + " 行" : ""));
+    renderDebugCallStack();
+    renderDebugVariables().catch(() => { });
   }
   function debugFrameSourceLine(frame) {
     if (!frame || !frame.location) return -1;
@@ -1873,7 +1941,8 @@
     clearDebugLine();
     setDebugButtons(false);
     setDebugStatus("运行中…");
-    renderDebugCallStackLocal();
+    if (state.debug.backend === "cdp") renderDebugCallStack();
+    else renderDebugCallStackLocal();
     const box = $("debugVariables"); if (box) box.innerHTML = '<div class="debug-empty">暂停后显示变量</div>';
   }
   function renderDebugCallStackLocal() {
@@ -1896,13 +1965,16 @@
   }
   function debugSyncBreakpoints() {
     if (!state.debug.active || !state.running) return;
-    try {
-      sendDebugCommand("breakpoints", { breakpoints: Array.from(currentBreakpoints()).map((n) => n + 1) });
-    } catch { }
+    if (state.debug.backend === "cdp") {
+      debugClearBreakpoints().then(() => debugSetCdpBreakpoints()).catch(() => { });
+      return;
+    }
+    try { sendDebugCommand("breakpoints", { breakpoints: Array.from(currentBreakpoints()).map((n) => n + 1) }); } catch { }
   }
   function clearAllBreakpoints() {
     state.breakpointsByFile.clear();
     renderBreakpoints();
+    if (state.debug.backend === "cdp") debugClearBreakpoints().catch(() => { });
     debugSyncBreakpoints();
     setDebugStatus("已清空所有断点");
   }
@@ -1917,20 +1989,36 @@
     if (!frame || !frame.contentWindow) return;
     frame.contentWindow.postMessage(Object.assign({ type: "js-debug-command", runId: state.runSeq, command: command }, extra || {}), "*");
   }
-  function debugEval() {
+  async function debugEval() {
     const input = $("debugEvalInput");
     const expression = input ? input.value.trim() : "";
     if (!expression || !state.debug.paused) return;
+    const out = $("debugEvalResult");
+    if (state.debug.backend === "cdp") {
+      try {
+        const res = await cdp("Debugger.evaluateOnCallFrame", { callFrameId: state.debug.frameId, expression: expression, returnByValue: true, generatePreview: true });
+        if (out) out.textContent = res.exceptionDetails ? "异常：" + (res.exceptionDetails.text || "") : debugValue(res.result);
+      } catch (e) { if (out) out.textContent = String(e && e.message ? e.message : e); }
+      return;
+    }
     sendDebugCommand("eval", { expression: expression });
   }
   function debugCommand(command) {
+    if (state.debug.backend === "cdp") {
+      const map = { resume: "Debugger.resume", step: "Debugger.stepOver", stepInto: "Debugger.stepInto", stepOut: "Debugger.stepOut", pause: "Debugger.pause" };
+      const method = map[command] || "Debugger.resume";
+      if (command === "resume") { debugOnResumed(); }
+      else setDebugStatus(command === "pause" ? "暂停请求已发送" : "单步执行中…");
+      cdp(method, {}).catch((e) => setDebugStatus("调试命令失败：" + (e && e.message ? e.message : e)));
+      return;
+    }
     if (command === "resume") { sendDebugCommand("resume"); debugOnResumed(); }
     else if (command === "step") { sendDebugCommand("step"); setDebugStatus("单步执行中…"); }
     else if (command === "pause") sendDebugCommand("pause");
     else sendDebugCommand(command);
   }
   function handleCdpEvent(method, params) {
-    if (method === "Debugger.paused") debugOnPaused(params || {});
+    if (method === "Debugger.paused") debugOnCdpPaused(params || {});
     else if (method === "Debugger.resumed") debugOnResumed();
   }
   function renderDebugCallStack() {
@@ -1996,8 +2084,8 @@
     $("debugResume").addEventListener("click", () => debugCommand("resume"));
     $("debugPause").addEventListener("click", () => debugCommand("pause"));
     $("debugStepOver").addEventListener("click", () => debugCommand("step"));
-    $("debugStepInto").addEventListener("click", () => debugCommand("step"));
-    $("debugStepOut").addEventListener("click", () => debugCommand("step"));
+    $("debugStepInto").addEventListener("click", () => debugCommand("stepInto"));
+    $("debugStepOut").addEventListener("click", () => debugCommand("stepOut"));
     $("debugEvalBtn").addEventListener("click", debugEval);
     $("debugEvalInput").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); debugEval(); } });
   }

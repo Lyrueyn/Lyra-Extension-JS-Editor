@@ -230,3 +230,10 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 - 表达式体箭头函数（如 forEach 回调）会改写成块体并插入暂停点。
 - 函数/方法/回调整体插桩；单步可进入回调与 class 方法。
 - 说明：constructor 不能 async，纯插桩调试无法同步暂停构造函数；完全对齐 VS Code 需要 V8 调试器。
+
+## 1.21.0
+
+- 主程序改用固定版 WebView2 Runtime 144，恢复 V8 CDP 调试。
+- JS 编辑器优先使用 V8 CDP：constructor、表达式级单步、作用域按 V8 真实栈帧显示。
+- CDP 不可用时自动回退源码插桩调试。
+- 调试工具栏保留逐行运行、清空断点。
