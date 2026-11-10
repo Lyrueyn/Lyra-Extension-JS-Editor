@@ -54,6 +54,61 @@
 
   function displayParts(parts) { return (parts || []).map((p) => p.text || "").join(""); }
 
+  function referencesAt(cm, pos) {
+    if (!cm || !ts) return null;
+    try {
+      const handle = getService(cm.getValue());
+      const refs = handle.instance.findReferences(handle.fileName, cm.indexFromPos(pos || cm.getCursor()), {});
+      if (!refs || !refs.length) return null;
+      const out = [];
+      for (const symbol of refs) for (const ref of symbol.references || []) {
+        if (ref.isDefinition && false) continue;
+        out.push(cm.posFromIndex(ref.textSpan.start));
+      }
+      return out.length ? out : null;
+    } catch { return null; }
+  }
+
+  function renameAt(cm, pos, newName) {
+    if (!cm || !ts) return null;
+    try {
+      const handle = getService(cm.getValue());
+      const locations = handle.instance.findRenameLocations(handle.fileName, cm.indexFromPos(pos || cm.getCursor()), false, false);
+      if (!locations || !locations.length) return null;
+      return locations.map((loc) => ({ start: cm.posFromIndex(loc.textSpan.start), end: cm.posFromIndex(loc.textSpan.start + loc.textSpan.length) }));
+    } catch { return null; }
+  }
+
+  function signatureAt(cm) {
+    if (!cm || !ts) return null;
+    try {
+      const handle = getService(cm.getValue());
+      const help = handle.instance.getSignatureHelpItems(handle.fileName, cm.indexFromPos(cm.getCursor()), {});
+      if (!help || !help.items || !help.items.length) return null;
+      const item = help.items[0];
+      const label = (parts) => (parts || []).map((p) => p.text || "").join("");
+      return {
+        prefix: label(item.prefixDisplayParts),
+        params: (item.parameters || []).map((p) => ({ label: label(p.displayParts) })),
+        suffix: label(item.suffixDisplayParts),
+        active: help.argumentIndex || 0,
+      };
+    } catch { return null; }
+  }
+
+  function definitionAt(cm, pos) {
+    if (!cm || !ts) return null;
+    try {
+      const handle = getService(cm.getValue());
+      const at = pos || cm.getCursor();
+      const defs = handle.instance.getDefinitionAtPosition(handle.fileName, cm.indexFromPos(at));
+      if (!defs || !defs.length) return null;
+      const def = defs.find((d) => d.fileName === handle.fileName) || defs[0];
+      if (def.fileName !== handle.fileName) return null;
+      return cm.posFromIndex(def.textSpan.start);
+    } catch { return null; }
+  }
+
   function hoverAt(cm, pos, word) {
     if (!cm || !ts) return null;
     try {
@@ -123,5 +178,5 @@
     };
   }
 
-  window.MonacoCompletion = { hintAt: hintAt, hoverAt: hoverAt, kindOf: kindOf };
+  window.MonacoCompletion = { hintAt: hintAt, hoverAt: hoverAt, signatureAt: signatureAt, definitionAt: definitionAt, referencesAt: referencesAt, renameAt: renameAt, kindOf: kindOf };
 })();

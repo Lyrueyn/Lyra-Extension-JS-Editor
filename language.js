@@ -730,6 +730,15 @@
     async function goToDefinition() {
       const word = wordAtCursor();
       if (!word) { ctx.toast("光标不在符号上", true); return; }
+      const mono = window.MonacoCompletion && window.MonacoCompletion.definitionAt(cm(), cm().getCursor());
+      if (mono) {
+        const editor = cm();
+        editor.setCursor(mono);
+        editor.focus();
+        editor.scrollIntoView(mono, 120);
+        ctx.setStatus("已跳转到 " + word.name + " 的定义");
+        return;
+      }
       try {
         const result = await resolveSymbol(word.name);
         if (!result) { ctx.toast("没有找到定义：" + word.name, true); return; }
@@ -938,6 +947,23 @@
       paramTimer = setTimeout(() => {
         const el = document.getElementById("paramHint");
         if (!el) return;
+        const mono = window.MonacoCompletion && window.MonacoCompletion.signatureAt(cm());
+        if (mono) {
+          const rendered = (mono.params || []).map((p, i) => '<span class="pm-param' + (i === mono.active ? " active" : "") + '">' + escHtml(p.label) + '</span>').join(", ");
+          el.innerHTML = '<span class="pm-tag">参数</span>' + escHtml(mono.prefix) + rendered + escHtml(mono.suffix);
+          el.hidden = false;
+          const cursor = cm().cursorCoords(null, "window");
+          const wrapRect = document.getElementById("editorWrap").getBoundingClientRect();
+          let left = cursor.left - wrapRect.left + 10;
+          let top = cursor.bottom - wrapRect.top + 8;
+          const width = el.offsetWidth;
+          const height = el.offsetHeight;
+          if (left + width > wrapRect.width - 8) left = Math.max(8, wrapRect.width - width - 8);
+          if (top + height > wrapRect.height - 8) top = Math.max(8, cursor.top - wrapRect.top - height - 8);
+          el.style.left = Math.round(left) + "px";
+          el.style.top = Math.round(top) + "px";
+          return;
+        }
         const context = callContext();
         if (!context) { el.hidden = true; return; }
         const sym = context.sym;

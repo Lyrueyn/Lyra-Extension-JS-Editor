@@ -178,3 +178,8 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 - 悬浮提示也改用 Monaco TypeScript language service，和 HTML 编辑器一致。
 - 悬浮卡显示 `FN queue.push`、完整签名、JSDoc、`Monaco TS · Ln`。
 - 补全继续使用 Monaco TS 服务；原有本地规则作为回退。
+
+## 1.14.0
+
+- 参数提示和定义跳转也改用 Monaco TypeScript language service。
+- 悬浮、补全、参数、定义统一走 Monaco；引用和重命名保留项目级索引。
