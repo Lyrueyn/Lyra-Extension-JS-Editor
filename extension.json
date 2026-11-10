@@ -1,7 +1,7 @@
 {
   "id": "js-editor",
   "name": "JavaScript 编辑器",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "entry": "index.html",
   "description": "JavaScript 编辑器插件：项目文件树、CodeMirror JS/JSON/HTML/CSS 语法高亮、保存、运行、Console 与 Preview。",
   "kind": "editor-plugin",

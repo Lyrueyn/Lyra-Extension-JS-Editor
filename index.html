@@ -19,6 +19,8 @@
       <button id="undoBtn" class="icon-tool" type="button" title="撤销 (Ctrl+Z)">撤销</button>
       <button id="redoBtn" class="icon-tool" type="button" title="重做 (Ctrl+Shift+Z)">重做</button>
       <button id="hintBtn" class="icon-tool" type="button" title="代码补全 (Ctrl+Space)">补全</button>
+      <button id="formatBtn" class="icon-tool" type="button" title="格式化文档 (Shift+Alt+F)">格式化</button>
+      <button id="lintBtn" class="icon-tool" type="button" title="检查问题 (Ctrl+Shift+M)">检查</button>
       <button id="findBtn" class="icon-tool" type="button" title="查找替换 (Ctrl+F)">查找</button>
       <span class="tool-sep"></span>
       <button id="foldAllBtn" class="icon-tool" type="button" title="折叠全部">折叠</button>
@@ -93,7 +95,8 @@
 
       <section id="bottomPanel">
         <div id="panelTabs">
-          <span class="panel-title">Console</span>
+          <button id="consoleTab" class="panel-tab active" type="button">Console</button>
+          <button id="problemsTab" class="panel-tab" type="button">问题 <span id="problemsCount">0</span></button>
           <span id="runtimeBadge" class="runtime-badge">浏览器沙箱</span>
           <span class="spacer"></span>
           <button id="clearConsoleBtn" class="panel-tool" type="button">清空</button>
@@ -101,6 +104,7 @@
         <div id="consoleOutput" class="console-output">
           <div class="console-empty">点击「运行文件」或「运行选中」执行 JavaScript，console.log 会输出到这里。</div>
         </div>
+        <div id="problemList" class="problem-list" hidden></div>
         <div class="repl-row">
           <span class="repl-prompt">›</span>
           <input id="replInput" type="text" placeholder="输入 JavaScript 表达式，回车执行（例如 1 + 2）" spellcheck="false" autocomplete="off"/>
@@ -150,6 +154,10 @@
   <script src="vendor/codemirror/addon/fold/brace-fold.min.js"></script>
   <script src="vendor/codemirror/addon/hint/show-hint.min.js"></script>
   <script src="vendor/codemirror/addon/hint/javascript-hint.min.js"></script>
+  <script src="vendor/lint/acorn.js"></script>
+  <script src="vendor/lint/acorn-walk.js"></script>
+  <script src="vendor/lint/beautify.js"></script>
+  <script src="lint.js"></script>
   <script src="language.js"></script>
   <script src="app.js"></script>
 </body>

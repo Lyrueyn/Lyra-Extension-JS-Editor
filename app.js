@@ -24,6 +24,11 @@
     outlineTimer: 0,
     autoHintCooldown: 0,
     hintRefresh: false,
+    problems: [],
+    lintTimer: 0,
+    lintLineClasses: new Map(),
+    bottomTab: "console",
+    problemIndex: -1,
     hintSymbolsValue: null,
     hintSymbols: [],
     autoSaveTimer: 0,
@@ -299,6 +304,7 @@
     setStatus(state.dirty ? "编辑中…" : "已保存");
     scheduleAutoSave();
     scheduleOutline();
+    scheduleLint(900);
     updateHistoryButtons();
   }
 
@@ -363,6 +369,8 @@
     updateChrome();
     renderOutline();
     updateHistoryButtons();
+    resetLint();
+    scheduleLint(350);
     setStatus("已加载");
     if (language) language.invalidateProjectIndex();
   }
@@ -821,6 +829,183 @@
     }, delay || 120);
   }
 
+  // ---------- 代码格式化 / 检查 ----------
+  function resetLint() {
+    clearTimeout(state.lintTimer);
+    if (cm) {
+      for (const [line, cls] of state.lintLineClasses) cm.removeLineClass(line, "background", cls);
+    }
+    state.lintLineClasses.clear();
+    state.problems = [];
+    state.problemIndex = -1;
+    const count = $("problemsCount");
+    if (count) count.textContent = "0";
+    const list = $("problemList");
+    if (list) list.innerHTML = "";
+    const tab = $("problemsTab");
+    if (tab) tab.classList.remove("has-error");
+  }
+
+  function applyLintLineClasses() {
+    if (!cm) return;
+    for (const [line, cls] of state.lintLineClasses) cm.removeLineClass(line, "background", cls);
+    state.lintLineClasses.clear();
+    const byLine = new Map();
+    for (const p of state.problems) {
+      const line = Math.max(0, (p.line || 1) - 1);
+      const cls = p.severity === "error" ? "cm-lint-line-error" : "cm-lint-line-warning";
+      if (!byLine.has(line) || cls === "cm-lint-line-error") byLine.set(line, cls);
+    }
+    for (const [line, cls] of byLine) {
+      cm.addLineClass(line, "background", cls);
+      state.lintLineClasses.set(line, cls);
+    }
+  }
+
+  function renderProblemList() {
+    const list = $("problemList");
+    const count = $("problemsCount");
+    if (count) count.textContent = String(state.problems.length);
+    const tab = $("problemsTab");
+    if (tab) tab.classList.toggle("has-error", state.problems.some((p) => p.severity === "error"));
+    if (!list || state.bottomTab !== "problems") return;
+    if (!state.problems.length) {
+      list.innerHTML = '<div class="problem-empty">没有发现问题</div>';
+      return;
+    }
+    list.innerHTML = "";
+    state.problems.forEach((problem, index) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "problem-item " + (problem.severity === "error" ? "error" : "warning") + (index === state.problemIndex ? " active" : "");
+      const icon = document.createElement("span");
+      icon.className = "problem-icon";
+      icon.textContent = problem.severity === "error" ? "✕" : "!";
+      const body = document.createElement("span");
+      body.className = "problem-body";
+      const loc = document.createElement("span");
+      loc.className = "problem-loc";
+      loc.textContent = "Ln " + problem.line + ", Col " + (problem.ch + 1);
+      const msg = document.createElement("span");
+      msg.className = "problem-msg";
+      msg.textContent = problem.message || "";
+      const rule = document.createElement("span");
+      rule.className = "problem-rule";
+      rule.textContent = problem.rule || "";
+      body.appendChild(loc);
+      body.appendChild(msg);
+      body.appendChild(rule);
+      item.appendChild(icon);
+      item.appendChild(body);
+      item.addEventListener("click", () => gotoProblem(index));
+      list.appendChild(item);
+    });
+  }
+
+  function setBottomTab(name) {
+    state.bottomTab = name === "problems" ? "problems" : "console";
+    $("consoleTab").classList.toggle("active", state.bottomTab === "console");
+    $("problemsTab").classList.toggle("active", state.bottomTab === "problems");
+    $("consoleOutput").hidden = state.bottomTab !== "console";
+    const repl = document.querySelector(".repl-row");
+    if (repl) repl.hidden = state.bottomTab !== "console";
+    $("problemList").hidden = state.bottomTab !== "problems";
+    if (state.bottomTab === "problems") renderProblemList();
+  }
+
+  function gotoProblem(index) {
+    const problem = state.problems[index];
+    if (!problem || !cm) return;
+    state.problemIndex = index;
+    setBottomTab("problems");
+    cm.setCursor({ line: Math.max(0, (problem.line || 1) - 1), ch: Math.max(0, problem.ch || 0) });
+    cm.focus();
+    cm.scrollIntoView({ line: Math.max(0, (problem.line || 1) - 1), ch: Math.max(0, problem.ch || 0) }, 140);
+    renderProblemList();
+  }
+
+  function runLint(opts) {
+    opts = opts || {};
+    clearTimeout(state.lintTimer);
+    if (!cm) return [];
+    const rel = state.currentRel || "";
+    const kind = classify(rel);
+    if (!kind || (kind !== "js" && kind !== "json")) {
+      state.problems = [];
+      applyLintLineClasses();
+      renderProblemList();
+      if (opts.open) setBottomTab("problems");
+      return [];
+    }
+    if (/\.tsx?$/i.test(rel)) {
+      state.problems = [];
+      applyLintLineClasses();
+      renderProblemList();
+      if (opts.open) { setBottomTab("problems"); toast("TypeScript 文件暂不进行完整语法检查", true); }
+      return [];
+    }
+    let problems = [];
+    try {
+      if (kind === "json") {
+        try { JSON.parse(cm.getValue()); }
+        catch (err) {
+          const message = String(err && err.message || err);
+          const pos = message.match(/position\s+(\d+)/i);
+          let line = 1;
+          let ch = 0;
+          if (pos) {
+            const before = cm.getValue().slice(0, Number(pos[1]));
+            const lines = before.split("\n");
+            line = lines.length;
+            ch = lines[lines.length - 1].length;
+          }
+          problems.push({ line, ch, severity: "error", rule: "json", message: "JSON 语法错误：" + message });
+        }
+      } else if (window.LyraJSTools) {
+        problems = window.LyraJSTools.lintCode(cm.getValue());
+      } else {
+        toast("检查库没有加载", true);
+      }
+    } catch (err) {
+      problems = [{ line: 1, ch: 0, severity: "error", rule: "lint", message: String(err && err.message || err) }];
+    }
+    state.problems = problems;
+    state.problemIndex = -1;
+    applyLintLineClasses();
+    renderProblemList();
+    if (opts.open) setBottomTab("problems");
+    if (opts.manual) setStatus(problems.length ? "检查完成：发现 " + problems.length + " 个问题" : "检查完成：没有发现问题");
+    return problems;
+  }
+
+  function scheduleLint(delay) {
+    clearTimeout(state.lintTimer);
+    if (!state.currentRel) return;
+    state.lintTimer = setTimeout(() => { runLint({ silent: true }); }, delay == null ? 900 : delay);
+  }
+
+  function formatDocument() {
+    if (!cm) return;
+    const kind = classify(state.currentRel || "");
+    if (kind !== "js" && kind !== "json") { toast("当前文件不支持格式化", true); return; }
+    try {
+      const code = cm.getValue();
+      const formatted = window.LyraJSTools.formatCode(code, kind === "json" ? "json" : "js");
+      if (formatted === code) { setStatus("格式已经整齐"); return; }
+      const cursor = cm.getCursor();
+      cm.operation(() => {
+        cm.replaceRange(formatted, { line: 0, ch: 0 }, { line: cm.lineCount(), ch: 0 });
+      });
+      cm.setCursor({ line: Math.min(cursor.line, cm.lineCount() - 1), ch: Math.min(cursor.ch, cm.getLine(Math.min(cursor.line, cm.lineCount() - 1)).length) });
+      markDirty();
+      scheduleLint(200);
+      setStatus("已格式化");
+      toast("已格式化当前文件");
+    } catch (err) {
+      toast("格式化失败：" + String(err && err.message || err), true);
+    }
+  }
+
   function initEditor() {
     cm = CodeMirror.fromTextArea($("code"), {
       mode: { name: "javascript" },
@@ -841,6 +1026,9 @@
         "Cmd-Enter": runFile,
         "Ctrl-Space": () => showJsHint(cm),
         "Alt-Space": () => showJsHint(cm),
+        "Shift-Alt-F": formatDocument,
+        "Alt-Shift-F": formatDocument,
+        "Ctrl-Shift-M": () => runLint({ open: true, manual: true }),
         "Ctrl-F": () => openFind(false),
         "Cmd-F": () => openFind(false),
         "Ctrl-H": () => openFind(true),
@@ -900,6 +1088,10 @@
     $("foldAllBtn").addEventListener("click", () => { try { cm.execCommand("foldAll"); } catch (e) { toast("折叠失败：" + e.message, true); } });
     $("unfoldAllBtn").addEventListener("click", () => { try { cm.execCommand("unfoldAll"); } catch (e) { toast("展开失败：" + e.message, true); } });
     $("hintBtn").addEventListener("click", () => { cm.focus(); showJsHint(cm); });
+    $("formatBtn").addEventListener("click", formatDocument);
+    $("lintBtn").addEventListener("click", () => runLint({ open: true, manual: true }));
+    $("consoleTab").addEventListener("click", () => setBottomTab("console"));
+    $("problemsTab").addEventListener("click", () => setBottomTab("problems"));
     $("findBtn").addEventListener("click", () => { if (state.find.open) closeFind(); else openFind(false); });
     $("findClose").addEventListener("click", closeFind);
     $("findPrev").addEventListener("click", () => findNext(-1));

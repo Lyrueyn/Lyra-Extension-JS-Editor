@@ -376,3 +376,24 @@ html[data-js-theme="light"] li.CodeMirror-hint-active .js-hint-detail { color: r
 .symbol-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .find-btn.primary { background: var(--accent); border-color: var(--accent); color: #191a12; font-weight: 650; }
 html[data-js-theme="light"] .find-btn.primary { color: #fff; }
+
+
+/* ---------- Lint / problems ---------- */
+.panel-tab span { font-size: 9px; opacity: .8; margin-left: 2px; }
+.problem-list { flex: 1; overflow: auto; padding: 4px 6px 8px; display: flex; flex-direction: column; }
+.problem-list[hidden] { display: none; }
+.problem-empty { color: var(--muted); font-size: 11px; padding: 14px 10px; }
+.problem-item { display: flex; width: 100%; align-items: flex-start; gap: 8px; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); background: transparent; color: var(--sub); text-align: left; padding: 7px 8px; cursor: pointer; font-size: 11px; }
+.problem-item:hover { background: var(--panel2); color: var(--text); }
+.problem-icon { flex: 0 0 15px; font-size: 10px; font-weight: 700; }
+.problem-item.error .problem-icon { color: #ff6b6b; }
+.problem-item.warning .problem-icon { color: #e8b84c; }
+.problem-body { min-width: 0; }
+.problem-loc { color: var(--muted); font: 9.5px Consolas, monospace; margin-right: 7px; }
+.problem-msg { color: var(--text); line-height: 1.5; word-break: break-word; }
+.problem-rule { color: var(--muted); font-size: 9px; margin-left: 7px; }
+.problem-item.active { background: var(--accent-soft); }
+.cm-lint-line-error { background: rgba(255, 107, 107, .12) !important; }
+.cm-lint-line-warning { background: rgba(232, 184, 76, .10) !important; }
+html[data-js-theme="light"] .cm-lint-line-error { background: rgba(220, 60, 60, .10) !important; }
+html[data-js-theme="light"] .cm-lint-line-warning { background: rgba(190, 135, 15, .11) !important; }
