@@ -208,3 +208,10 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 
 - 顶部新增「断点」按钮，支持 F9 切换当前行断点。
 - 断点栏加宽并加背景，行号最左侧窄栏更明显。
+
+## 1.18.0
+
+- 断点支持函数声明、函数表达式和 class 方法；包含断点的函数在调试运行时转为 async 并插入暂停点。
+- 变量面板补充函数参数、局部变量和 this。
+- 运行结束/停止时调试状态会正确更新，不再一直显示「运行中」。
+- 箭头函数回调（如 Promise.then 内部）暂未插桩。

@@ -624,48 +624,34 @@
     return { html: prefix + safeCode + suffix, sourceStartLine: prefix.split("\n").length, lineCount: safeCode.split("\n").length };
   }
 
-  function collectDebugNames(ast, source) {
+  function collectDebugNames(ast) {
     const names = new Set();
-    function addPattern(pattern, out) {
+    function addPattern(pattern) {
       if (!pattern) return;
-      if (pattern.type === "Identifier") { if (typeof out.add === "function") out.add(pattern.name); else out.push(pattern.name); }
-      else if (pattern.type === "ObjectPattern") for (const prop of pattern.properties || []) addPattern(prop.value || prop.argument, out);
-      else if (pattern.type === "ArrayPattern") for (const el of pattern.elements || []) addPattern(el, out);
-      else if (pattern.type === "AssignmentPattern") addPattern(pattern.left, out);
-      else if (pattern.type === "RestElement") addPattern(pattern.argument, out);
+      if (pattern.type === "Identifier") names.add(pattern.name);
+      else if (pattern.type === "ObjectPattern") for (const prop of pattern.properties || []) addPattern(prop.value || prop.argument);
+      else if (pattern.type === "ArrayPattern") for (const el of pattern.elements || []) addPattern(el);
+      else if (pattern.type === "AssignmentPattern") addPattern(pattern.left);
+      else if (pattern.type === "RestElement") addPattern(pattern.argument);
     }
-    function visitStatements(body) {
-      for (const stmt of body || []) {
-        if (!stmt) continue;
-        if (stmt.type === "VariableDeclaration") for (const decl of stmt.declarations || []) addPattern(decl.id, names),
-          decl.init && visitExpression(decl.init);
-        else if (stmt.type === "FunctionDeclaration") { if (stmt.id) names.add(stmt.id.name); }
-        else if (stmt.type === "ClassDeclaration") { if (stmt.id) names.add(stmt.id.name); }
-        else if (stmt.type === "ImportDeclaration") for (const spec of stmt.specifiers || []) if (spec.local) names.add(spec.local.name);
-        else if (stmt.type === "ForStatement") {
-          if (stmt.init && stmt.init.type === "VariableDeclaration") for (const decl of stmt.init.declarations || []) addPattern(decl.id, names);
-          visitStatements(stmt.body && stmt.body.type === "BlockStatement" ? stmt.body.body : [stmt.body]);
-        } else if (stmt.type === "ForInStatement" || stmt.type === "ForOfStatement") {
-          if (stmt.left && stmt.left.type === "VariableDeclaration") for (const decl of stmt.left.declarations || []) addPattern(decl.id, names);
-          visitStatements(stmt.body && stmt.body.type === "BlockStatement" ? stmt.body.body : [stmt.body]);
-        } else if (stmt.type === "BlockStatement") visitStatements(stmt.body);
-        else if (stmt.type === "IfStatement") { visitStatements(stmt.consequent && stmt.consequent.type === "BlockStatement" ? stmt.consequent.body : []); visitStatements(stmt.alternate && stmt.alternate.type === "BlockStatement" ? stmt.alternate.body : []); }
-        else if (stmt.type === "WhileStatement" || stmt.type === "DoWhileStatement" || stmt.type === "LabeledStatement") visitStatements(stmt.body && stmt.body.type === "BlockStatement" ? stmt.body.body : [stmt.body]);
-        else if (stmt.type === "TryStatement") { visitStatements(stmt.block && stmt.block.body); visitStatements(stmt.handler && stmt.handler.body && stmt.handler.body.body); visitStatements(stmt.finalizer && stmt.finalizer.body); }
-        else if (stmt.type === "SwitchStatement") for (const c of stmt.cases || []) visitStatements(c.consequent);
-      }
-    }
-    function visitExpression(node) {
+    function walk(node) {
       if (!node || typeof node !== "object") return;
-      if (node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression" || node.type === "ClassExpression") return;
+      if (Array.isArray(node)) { for (const item of node) walk(item); return; }
+      switch (node.type) {
+        case "VariableDeclarator": addPattern(node.id); break;
+        case "FunctionDeclaration": if (node.id) names.add(node.id.name); for (const p of node.params || []) addPattern(p); break;
+        case "FunctionExpression":
+        case "ArrowFunctionExpression": for (const p of node.params || []) addPattern(p); break;
+        case "ClassDeclaration": if (node.id) names.add(node.id.name); break;
+        case "CatchClause": addPattern(node.param); break;
+        case "ImportDeclaration": for (const spec of node.specifiers || []) if (spec.local) names.add(spec.local.name); break;
+      }
       for (const key of Object.keys(node)) {
         if (key === "loc" || key === "range" || key === "start" || key === "end") continue;
-        const value = node[key];
-        if (Array.isArray(value)) for (const item of value) if (item && item.type) visitExpression(item);
-        else if (value && value.type) visitExpression(value);
+        walk(node[key]);
       }
     }
-    visitStatements(ast.body || []);
+    walk(ast);
     return names;
   }
 
@@ -696,29 +682,63 @@
       if (!acorn || !acorn.parse) throw new Error("acorn unavailable");
       const ast = acorn.parse(code, { ecmaVersion: "latest", sourceType: "script", locations: true, allowHashBang: true });
       if ((ast.body || []).some((n) => n.type === "ImportDeclaration" || n.type.startsWith("Export"))) throw new Error("module");
-      const names = collectDebugNames(ast, code);
+      const names = collectDebugNames(ast);
+      names.add("this");
       const inserts = [];
       function debugCall(line) {
-        const getters = Array.from(names).slice(0, 120).map((name) => "[\"" + name.replace(/\\/g, "\\\\").replace(/"/g, "\\\"") + "\",function(){try{return " + name + "}catch(e){return undefined}}]").join(",");
+        const getters = Array.from(names).slice(0, 160).map((name) => name === "this"
+          ? "[\"this\",()=>{try{return this}catch(e){return undefined}}]"
+          : "[\"" + name.replace(/\\/g, "\\\\").replace(/"/g, "\\\"") + "\",function(){try{return " + name + "}catch(e){return undefined}}]").join(",");
         return "await __lyraDebug(" + line + ",[" + getters + "],function(expr){try{return eval(expr)}catch(e){return e&&e.message?e.message:String(e)}});";
+      }
+      function functionHasBreakpoint(node) {
+        if (!node || !node.loc) return false;
+        const end = node.loc.end.line + breakpoints.length + 2000;
+        for (const bp of currentBreakpoints()) {
+          const line = bp + 1;
+          if (line >= node.loc.start.line && line <= node.loc.end.line) return true;
+        }
+        return false;
+      }
+      function addDebugCall(stmt) {
+        if (!stmt || stmt.type === "EmptyStatement") return false;
+        if (stmt.type === "ExpressionStatement" && stmt.directive) return false;
+        const lineStart = code.lastIndexOf("\n", stmt.start - 1) + 1;
+        if (!/^\s*$/.test(code.slice(lineStart, stmt.start))) return false;
+        inserts.push({ pos: stmt.start, text: debugCall(stmt.loc.start.line) });
+        return true;
+      }
+      function instrumentBody(body) {
+        for (const stmt of body || []) addStmt(stmt);
       }
       function addStmt(stmt) {
         if (!stmt || stmt.type === "EmptyStatement") return;
-        if (stmt.type === "FunctionDeclaration" || stmt.type === "ClassDeclaration") {
-          const lineStart = code.lastIndexOf("\n", stmt.start - 1) + 1;
-          if (/^\s*$/.test(code.slice(lineStart, stmt.start))) inserts.push({ pos: stmt.start, text: debugCall(stmt.loc.start.line) });
+        if (stmt.type === "FunctionDeclaration") {
+          addDebugCall(stmt);
+          if (functionHasBreakpoint(stmt)) {
+            if (!stmt.async) inserts.push({ pos: stmt.start, text: "async " });
+            if (stmt.body && stmt.body.body) instrumentBody(stmt.body.body);
+          }
           return;
         }
-        if (stmt.type === "ImportDeclaration" || stmt.type.startsWith("Export")) return;
-        if (stmt.type === "ExpressionStatement" && stmt.directive) return;
-        const lineStart = code.lastIndexOf("\n", stmt.start - 1) + 1;
-        if (/^\s*$/.test(code.slice(lineStart, stmt.start))) inserts.push({ pos: stmt.start, text: debugCall(stmt.loc.start.line) });
+        if (stmt.type === "ClassDeclaration") {
+          addDebugCall(stmt);
+          for (const member of (stmt.body && stmt.body.body) || []) {
+            if (member.type !== "MethodDefinition" || !member.value || !member.value.body) continue;
+            if (member.kind === "constructor" || member.kind === "get" || member.kind === "set") continue;
+            if (!functionHasBreakpoint(member.value)) continue;
+            if (!member.value.async) inserts.push({ pos: member.key.start, text: "async " });
+            instrumentBody(member.value.body.body);
+          }
+          return;
+        }
+        addDebugCall(stmt);
         const bodyOf = (node) => node && node.type === "BlockStatement" ? node.body : node && node.type ? [node] : [];
-        if (stmt.type === "BlockStatement") bodyOf(stmt).forEach(addStmt);
-        else if (stmt.type === "IfStatement") { bodyOf(stmt.consequent).forEach(addStmt); bodyOf(stmt.alternate).forEach(addStmt); }
-        else if (stmt.type === "ForStatement" || stmt.type === "ForInStatement" || stmt.type === "ForOfStatement" || stmt.type === "WhileStatement" || stmt.type === "DoWhileStatement" || stmt.type === "LabeledStatement") bodyOf(stmt.body).forEach(addStmt);
-        else if (stmt.type === "TryStatement") { bodyOf(stmt.block).forEach(addStmt); if (stmt.handler && stmt.handler.body) bodyOf(stmt.handler.body).forEach(addStmt); if (stmt.finalizer) bodyOf(stmt.finalizer).forEach(addStmt); }
-        else if (stmt.type === "SwitchStatement") for (const c of stmt.cases || []) bodyOf({ type: "BlockStatement", body: c.consequent }).forEach(addStmt);
+        if (stmt.type === "BlockStatement") instrumentBody(stmt.body);
+        else if (stmt.type === "IfStatement") { instrumentBody(bodyOf(stmt.consequent)); instrumentBody(bodyOf(stmt.alternate)); }
+        else if (stmt.type === "ForStatement" || stmt.type === "ForInStatement" || stmt.type === "ForOfStatement" || stmt.type === "WhileStatement" || stmt.type === "DoWhileStatement" || stmt.type === "LabeledStatement") instrumentBody(bodyOf(stmt.body));
+        else if (stmt.type === "TryStatement") { if (stmt.block) instrumentBody(stmt.block.body); if (stmt.handler && stmt.handler.body) instrumentBody(stmt.handler.body.body); if (stmt.finalizer) instrumentBody(stmt.finalizer.body); }
+        else if (stmt.type === "SwitchStatement") for (const c of stmt.cases || []) instrumentBody(c.consequent);
       }
       (ast.body || []).forEach(addStmt);
       inserts.sort((a, b) => b.pos - a.pos);
@@ -781,7 +801,7 @@
     try {
       const debugging = allowDebug && state.debug.active;
       if (debugging) {
-        const runner = buildDebugRunner(code, state.runSeq, Array.from(currentBreakpoints()));
+        const runner = buildDebugRunner(code, state.runSeq, Array.from(currentBreakpoints()).map((n) => n + 1));
         state.runMeta = { sourceStartLine: runner.sourceStartLine, lineCount: runner.lineCount };
         await debugPrepare(runner);
         $("runFrame").srcdoc = runner.html;
@@ -841,6 +861,7 @@
     const ms = Math.max(0, Date.now() - state.runStartedAt);
     appendConsole(pending.hadError ? "error" : "info", [(pending.hadError ? "✕ 运行结束（有错误）" : "✓ 运行结束") + "  ·  " + ms + " ms"], "run-done");
     setRunUi(false);
+    if (state.debug.active) { clearDebugLine(); setDebugButtons(false); setDebugStatus("运行结束"); }
   }
 
   function stopRun() {
@@ -857,6 +878,7 @@
     $("runFrame").srcdoc = "";
     appendConsole("error", ["■ 已停止运行"], "run-stop");
     setRunUi(false);
+    if (state.debug.active) { clearDebugLine(); setDebugButtons(false); setDebugStatus("已停止"); }
   }
 
   function runFile() {
