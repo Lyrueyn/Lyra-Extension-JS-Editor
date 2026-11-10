@@ -118,3 +118,8 @@ JavaScript 编辑器是「编辑器」扩展的 editor-plugin 插件。
 - 类型推断增强：字符串/数字/布尔/null/数组元素类型/对象/函数/三元/逻辑/比较/算术/`new`/常见调用返回类型。
 - 内置属性类型：document.readyState / window.innerWidth / element.scrollTop 等。
 - 对象字面量属性、类字段、析构变量、函数 return 推断、最近符号定位。
+
+## 1.5.1
+
+- 修复浅色主题下补全项鼠标悬停时，hover 背景覆盖 active 背景但文字仍是白色，导致白字看不清。
+- active 项 hover 现在保持深蓝底 + 白字。

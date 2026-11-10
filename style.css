@@ -301,15 +301,17 @@ html[data-shell="1"] .brand, html[data-shell="1"] .project-name { display: none 
   color: var(--text);
 }
 .CodeMirror-hint { padding: 4px 7px; border-radius: 5px; color: var(--text); cursor: pointer; white-space: nowrap; }
-.CodeMirror-hint:hover { background: var(--panel2); }
-li.CodeMirror-hint-active { background: var(--accent); color: #191a12; }
+.CodeMirror-hint:hover { background: var(--panel2); color: var(--text); }
+li.CodeMirror-hint-active,
+li.CodeMirror-hint-active:hover { background: var(--accent); color: #191a12; }
 .js-hint-row { display: flex; align-items: baseline; gap: 8px; width: 100%; }
 .js-hint-kind { flex: 0 0 36px; color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .04em; }
 .js-hint-name { overflow: hidden; text-overflow: ellipsis; max-width: 330px; }
 .js-hint-detail { margin-left: auto; padding-left: 14px; color: var(--muted); font-size: 9.5px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
 li.CodeMirror-hint-active .js-hint-kind,
 li.CodeMirror-hint-active .js-hint-detail { color: rgba(0,0,0,.55); }
-html[data-js-theme="light"] li.CodeMirror-hint-active { color: #fff; }
+html[data-js-theme="light"] li.CodeMirror-hint-active,
+html[data-js-theme="light"] li.CodeMirror-hint-active:hover { background: var(--accent); color: #fff; }
 html[data-js-theme="light"] li.CodeMirror-hint-active .js-hint-kind,
 html[data-js-theme="light"] li.CodeMirror-hint-active .js-hint-detail { color: rgba(255,255,255,.78); }
 
