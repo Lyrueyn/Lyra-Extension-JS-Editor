@@ -42,6 +42,7 @@
     workerSandbox: true,
     hintSymbolsValue: null,
     hintSymbols: [],
+    breakpointsByFile: new Map(),
     autoSaveTimer: 0,
     saveInFlight: false,
     saveQueued: false,
@@ -379,6 +380,7 @@
     renderTree();
     updateChrome();
     renderOutline();
+    renderBreakpoints();
     updateHistoryButtons();
     resetLint();
     scheduleLint(350);
@@ -744,7 +746,7 @@
 
   function runFile() {
     if (!cm || !state.currentRel) { toast("先打开一个 .js 文件", true); return; }
-    startRun("运行文件", cm.getValue());
+    startRun("运行文件", codeWithBreakpoints(cm.getValue()));
   }
 
   function runSelection() {
@@ -1589,13 +1591,59 @@
     }
   }
 
+  function currentBreakpoints() {
+    const rel = state.currentRel || "";
+    if (!state.breakpointsByFile.has(rel)) state.breakpointsByFile.set(rel, new Set());
+    return state.breakpointsByFile.get(rel);
+  }
+  function renderBreakpoints() {
+    if (!cm) return;
+    try {
+      cm.clearGutter("breakpoints");
+      for (const line of currentBreakpoints()) {
+        const dot = document.createElement("div");
+        dot.className = "cm-breakpoint";
+        dot.textContent = "●";
+        dot.title = "断点：第 " + (line + 1) + " 行";
+        cm.setGutterMarker(line, "breakpoints", dot);
+      }
+    } catch { }
+  }
+  function toggleBreakpoint(line) {
+    if (!cm || line < 0) return;
+    const text = cm.getLine(line) || "";
+    if (!text.trim()) return;
+    const set = currentBreakpoints();
+    if (set.has(line)) set.delete(line); else set.add(line);
+    renderBreakpoints();
+    setStatus(set.has(line) ? "已设置断点：第 " + (line + 1) + " 行" : "已清除断点：第 " + (line + 1) + " 行");
+  }
+  function codeWithBreakpoints(code) {
+    const set = currentBreakpoints();
+    if (!set.size) return code;
+    return String(code || "").split("\n").map((line, index) => {
+      if (!set.has(index) || !line.trim()) return line;
+      return "debugger; " + line;
+    }).join("\n");
+  }
+  async function openDebugger() {
+    try {
+      const res = await hostCall("editor.open-devtools", {});
+      if (!res || !res.ok) throw new Error((res && res.error) || "宿主拒绝了调试请求");
+      toast("DevTools 已打开；脚本名 lyra-user-code.js / lyra-user-worker.js；行号断点可直接点击代码行号左侧设置");
+      setStatus("调试器已打开");
+    } catch (e) {
+      toast("打开调试器失败：" + (e && e.message ? e.message : e), true);
+    }
+  }
+
   function initEditor() {
     cm = CodeMirror.fromTextArea($("code"), {
       mode: { name: "javascript" },
       theme: "jsdark",
       lineNumbers: true,
       foldGutter: true,
-      gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"],
+      gutters: ["breakpoints", "CodeMirror-linenumbers", "CodeMirror-foldgutter"],
       indentUnit: 2,
       tabSize: 2,
       lineWrapping: false,
@@ -1632,6 +1680,8 @@
       const pos = cm.getCursor();
       $("statusPos").textContent = "Ln " + (pos.line + 1) + ", Col " + (pos.ch + 1);
     });
+    cm.on("gutterClick", (editor, line, gutter) => { if (gutter === "breakpoints") toggleBreakpoint(line); });
+    renderBreakpoints();
     cm.on("changes", updateHistoryButtons);
     cm.on("inputRead", (editor, change) => {
       if (state.suppressChange) return;
@@ -1682,6 +1732,7 @@
     $("unfoldAllBtn").addEventListener("click", () => { try { cm.execCommand("unfoldAll"); } catch (e) { toast("展开失败：" + e.message, true); } });
     $("hintBtn").addEventListener("click", () => { cm.focus(); showJsHint(cm); });
     $("formatBtn").addEventListener("click", formatDocument);
+    $("debugBtn").addEventListener("click", openDebugger);
     $("lintBtn").addEventListener("click", () => runLint({ open: true, manual: true }));
     $("consoleTab").addEventListener("click", () => setBottomTab("console"));
     $("problemsTab").addEventListener("click", () => setBottomTab("problems"));

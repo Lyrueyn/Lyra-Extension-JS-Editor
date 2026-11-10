@@ -450,3 +450,8 @@ html[data-js-theme="light"] .cm-runtime-line { background: rgba(220, 60, 60, .12
   .problem-detail { flex: 0 0 auto; max-height: 42%; max-width: none; border-left: 0; border-top: 1px solid var(--line); }
 }
 html[data-js-theme="light"] .problem-detail { background: #f6f9fc; }
+
+/* 断点 gutter */
+.CodeMirror-gutter.breakpoints { width: 14px; }
+.CodeMirror-gutter.breakpoints .CodeMirror-gutter-elt { width: 14px; }
+.cm-breakpoint { color: #ff6262; font-size: 15px; line-height: 1; text-align: center; padding-top: 1px; text-shadow: 0 0 5px rgba(255,80,80,.6); cursor: pointer; }

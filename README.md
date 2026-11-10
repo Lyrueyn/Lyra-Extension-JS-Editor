@@ -183,3 +183,9 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 
 - 参数提示和定义跳转也改用 Monaco TypeScript language service。
 - 悬浮、补全、参数、定义统一走 Monaco；引用和重命名保留项目级索引。
+
+## 1.15.0
+
+- 新增「调试」按钮：打开 WebView2 DevTools，调试 `lyra-user-code.js` / `lyra-user-worker.js`。
+- 代码行号左侧可点击断点 gutter；运行时注入 `debugger;`，在 DevTools 中命中断点。
+- 断点按文件保存；DevTools 支持 Sources 断点、单步、作用域变量和 Console。
