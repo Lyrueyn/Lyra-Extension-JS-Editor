@@ -835,8 +835,9 @@
         try {
           await debugPrepareCdp(normal);
           $("runFrame").srcdoc = normal.html;
+          const debugSeq = state.runSeq;
           setTimeout(() => {
-            if (state.running && !state.debug.paused) endRun(false);
+            if (state.runSeq === debugSeq && state.running && !state.debug.paused) endRun(false);
           }, 15000);
           return;
         } catch (e) {
@@ -1903,6 +1904,14 @@
   async function debugPrepareCdp(runner) {
     await debugEnsure();
     state.debug.backend = "cdp";
+    state.debug.paused = false;
+    state.debug.everPaused = false;
+    state.debug.gateWaiting = false;
+    state.debug.gateReady = false;
+    state.debug.tempBreakpointId = "";
+    state.debug.sessions = [];
+    state.debug.sessionId = "";
+    state.debug.runSeq = state.runSeq;
     debugOut("调试后端：V8 CDP");
     try {
       const targets = await cdp("Target.getTargets");
@@ -1934,7 +1943,8 @@
       }
     } catch (e) { debugOut("CDP 目标读取失败：" + (e && e.message ? e.message : e)); }
     await debugSetCdpBreakpoints("");
-    setTimeout(() => { state.debug.gateReady = true; tryReleaseDebugGate(); }, 5000);
+    const gateSeq = state.runSeq;
+    setTimeout(() => { if (state.runSeq !== gateSeq) return; state.debug.gateReady = true; tryReleaseDebugGate(); }, 5000);
     if (state.debug.stepOnStart) {
       try {
         const offset = Math.max(0, (state.runMeta && state.runMeta.sourceStartLine ? state.runMeta.sourceStartLine : 1) - 1);
@@ -2060,6 +2070,7 @@
 
   function tryReleaseDebugGate() {
     if (!state.debug.gateWaiting || !state.debug.gateReady) return;
+    if (state.debug.runSeq !== state.runSeq) return;
     state.debug.gateWaiting = false;
     state.debug.gateReady = false;
     const f = $("runFrame");
@@ -2108,8 +2119,10 @@
       await debugSetCdpBreakpoints(childSessionId);
       try { await cdp("Runtime.runIfWaitingForDebugger", {}, childSessionId); } catch { }
       state.debug.gateReady = true;
+      const gateSeq = state.runSeq;
       for (const ms of [0, 250, 800]) {
         setTimeout(() => {
+          if (state.runSeq !== gateSeq) return;
           try { $("runFrame").contentWindow.postMessage({ type: "js-debug-release" }, "*"); } catch { }
         }, ms);
       }

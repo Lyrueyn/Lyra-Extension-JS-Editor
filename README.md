@@ -286,3 +286,8 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 
 - 修正最后一步后状态被 Debugger.resumed 覆盖为「运行中」的问题。
 - 增加调试运行 15 秒兜底结束，避免 done 消息丢失后一直运行中。
+
+## 1.21.11
+
+- 每次调试运行重置闸门/暂停/会话/临时断点状态，修复第二次运行断点失效。
+- 闸门重试和兜底定时器带 runSeq，旧运行的定时器不会再放行/结束新运行。
