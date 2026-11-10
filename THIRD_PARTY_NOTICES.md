@@ -72,3 +72,17 @@ Copyright OpenJS Foundation and other contributors, <https://openjsf.org/>.
 
 MIT License — same permission text as CodeMirror above. The bundle also
 contains ESLint's transitive dependencies under their respective MIT licenses.
+
+
+## Monaco Editor / TypeScript language service
+
+Files under `vendor/monaco-ts.min.js` and `vendor/monaco-completion.js`.
+
+- Monaco Editor: Copyright (c) Microsoft Corporation. MIT License.
+- TypeScript compiler / language service and lib files: Copyright (c) Microsoft
+  Corporation. Apache License 2.0.
+- Full notices: `vendor/MONACO-LICENSE.txt`,
+  `vendor/MONACO-THIRD-PARTY-NOTICES.txt`.
+
+The editor uses Monaco's bundled TypeScript language service for autocomplete
+only; Monaco's UI is not loaded.

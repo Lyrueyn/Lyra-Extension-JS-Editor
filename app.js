@@ -943,6 +943,30 @@
       .map((name) => jsHintItem(JS_MEMBERS[obj] ? "prop" : "prop", name, obj ? obj + "." : "member"));
   }
 
+  function jsMonacoHint(cm) {
+    if (!window.MonacoCompletion) return null;
+    const data = window.MonacoCompletion.hintAt(cm);
+    if (!data || !data.list || !data.list.length) return null;
+    return {
+      from: data.from,
+      to: data.to,
+      list: data.list.map((entry) => jsHintItem(window.MonacoCompletion.kindOf(entry.kind), entry.name, entry.kind || "monaco", entry.name)),
+    };
+  }
+
+  function jsMergeMonaco(cm, custom) {
+    const mono = jsMonacoHint(cm);
+    if (!mono) return custom;
+    const list = mono.list.slice();
+    const seen = new Set(list.map((item) => item.text));
+    for (const item of (custom && custom.list) || []) {
+      if (seen.has(item.text)) continue;
+      seen.add(item.text);
+      list.push(item);
+    }
+    return { list: list, from: mono.from || (custom && custom.from), to: mono.to || (custom && custom.to) };
+  }
+
   function jsHintSymbols(cm) {
     const value = cm.getValue();
     if (state.hintSymbolsValue === value) return state.hintSymbols;
@@ -962,7 +986,8 @@
       const prefix = member[2] || "";
       const from = { line: cursor.line, ch: cursor.ch - prefix.length };
       const list = jsMemberSuggestions(member[1], prefix);
-      return list.length ? { list: list, from: from, to: cursor } : null;
+      const result = list.length ? { list: list, from: from, to: cursor } : null;
+      return jsMergeMonaco(cm, result);
     }
     const wordMatch = before.match(/([A-Za-z_$][\w$]*)$/);
     const prefix = wordMatch ? wordMatch[1] : "";
@@ -986,7 +1011,7 @@
       add(jsHintItem("snip", snippet.text, snippet.detail, snippet.label));
     }
     if (!prefix && items.length > 80) items.length = 80;
-    return items.length ? { list: items, from: from, to: cursor } : null;
+    return jsMergeMonaco(cm, items.length ? { list: items, from: from, to: cursor } : null);
   }
 
   function showJsHint(cm) {

@@ -166,3 +166,9 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 - 新增 no-const-assign、no-delete-var、no-unsafe-*、no-useless-* 等规则。
 - 自定义类型规则补充：BigInt/Number 混用、Symbol 隐式转字符串、不可删除属性、冻结对象写入、箭头函数 new、null 解构、不可迭代展开、Object.assign null、Reflect.get 非对象、负数 String 参数。
 - 静态问题列表保留短标题 + Detail 详情。
+
+## 1.12.0
+
+- 自动补全改用 Monaco 自带的 TypeScript language service（vendor/monaco-ts.min.js）。
+- DOM/ES2022 类型、成员方法、JSDoc、局部变量补全更完整。
+- 保留原有悬浮、参数提示、定义、引用、重命名和自动导入。
