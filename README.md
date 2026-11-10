@@ -295,3 +295,7 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 ## 1.21.12
 
 - 每次调试运行前先清空 runFrame、detach 上一轮 iframe/子目标会话，避免旧目标重复附加和旧断点抢占。
+
+## 1.21.13
+
+- 不再直接附加旧 about:srcdoc 目标，只附加 JS 编辑器 iframe；runFrame 只通过 autoAttach 作为新子目标出现，避免第二次运行命中旧目标。

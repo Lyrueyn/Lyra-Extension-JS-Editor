@@ -1909,7 +1909,7 @@
         try { await cdp("Target.detachFromTarget", { sessionId: sid }); } catch { }
       }
       $("runFrame").srcdoc = "";
-      await new Promise((r) => setTimeout(r, 120));
+      await new Promise((r) => setTimeout(r, 350));
     } catch { }
     state.debug.paused = false;
     state.debug.everPaused = false;
@@ -1930,7 +1930,7 @@
     try {
       const targets = await cdp("Target.getTargets");
       const infos = (targets && targets.targetInfos) || [];
-      const candidates = infos.filter((t) => t.type === "iframe" || /js-editor|lyra-ext-js-editor|lyra-editor/i.test(String(t.url || "")));
+      const candidates = infos.filter((t) => t.type === "iframe" && /js-editor|lyra-ext-js-editor/i.test(String(t.url || "")));
       debugOut("CDP 目标：" + infos.map((t) => t.type + " " + (t.url || "")).join(" | "));
       for (const t of candidates) {
         try {
