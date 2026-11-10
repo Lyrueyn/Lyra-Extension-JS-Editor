@@ -1910,6 +1910,7 @@
           state.debug.sessions.push(att.sessionId);
           await cdp("Debugger.enable", {}, att.sessionId);
           await cdp("Runtime.enable", {}, att.sessionId);
+          try { await cdp("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, att.sessionId); } catch { }
           await debugSetCdpBreakpoints(att.sessionId);
           debugOut("已附加 iframe 调试目标：" + att.sessionId);
         } catch (e) { debugOut("附加 iframe 目标失败：" + (e && e.message ? e.message : e)); }
@@ -2070,7 +2071,23 @@
     else if (command === "pause") sendDebugCommand("pause");
     else sendDebugCommand(command);
   }
+  async function attachChildTarget(childSessionId, info) {
+    if (!childSessionId || state.debug.sessions.indexOf(childSessionId) >= 0) return;
+    state.debug.sessions.push(childSessionId);
+    try {
+      await cdp("Debugger.enable", {}, childSessionId);
+      await cdp("Runtime.enable", {}, childSessionId);
+      try { await cdp("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, childSessionId); } catch { }
+      await debugSetCdpBreakpoints(childSessionId);
+      try { await cdp("Runtime.runIfWaitingForDebugger", {}, childSessionId); } catch { }
+      debugOut("已附加子调试目标：" + ((info && info.type) || "?") + " " + ((info && info.url) || ""));
+    } catch (e) { debugOut("附加子目标失败：" + (e && e.message ? e.message : e)); }
+  }
   function handleCdpEvent(method, params, sessionId) {
+    if (method === "Target.attachedToTarget") {
+      attachChildTarget(params && params.sessionId, params && params.targetInfo);
+      return;
+    }
     if (method === "Target.receivedMessageFromTarget") {
       try {
         const inner = JSON.parse((params && params.message) || "{}");
@@ -2080,7 +2097,7 @@
     }
     if (method === "Debugger.scriptParsed") {
       const url = String(params && params.url || "");
-      if (/lyra-user-code|js-editor|lyra-/i.test(url)) debugOut("脚本已解析：" + url);
+      if (/lyra-user-code|js-editor|lyra-|srcdoc|blob/i.test(url)) debugOut("脚本已解析：" + (sessionId ? "[iframe] " : "") + (url || "(空 URL)"));
       return;
     }
     if (method === "Debugger.paused") { debugOut("V8 已暂停" + (sessionId ? "（iframe）" : "")); debugOnCdpPaused(params || {}, sessionId); }

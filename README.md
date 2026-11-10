@@ -260,3 +260,8 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 
 - iframe 目标附加改为 WebView2 要求的 flatten:true。
 - CDP 事件携带 sessionId，暂停/脚本解析从 iframe 会话正确路由。
+
+## 1.21.5
+
+- iframe 会话开启 Target.setAutoAttach，递归附加 runFrame 子目标。
+- 子目标 waitForDebuggerOnStart=true，先装断点再放行脚本。
