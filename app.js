@@ -511,6 +511,17 @@
       markRuntimeLine(options.line);
     }
     out.appendChild(line);
+    try {
+      const dbgOut = $("debugOutput");
+      if (dbgOut) {
+        const row = document.createElement("div");
+        if (level === "error") row.className = "dbg-out-error";
+        row.textContent = "[" + time.textContent + "] " + (Array.isArray(args) ? args.join(" ") : String(args == null ? "" : args));
+        dbgOut.appendChild(row);
+        while (dbgOut.childElementCount > 300) dbgOut.removeChild(dbgOut.firstChild);
+        dbgOut.scrollTop = dbgOut.scrollHeight;
+      }
+    } catch { }
     if (state.consoleAutoScroll) out.scrollTop = out.scrollHeight;
     return line;
   }
@@ -887,7 +898,7 @@
     const ms = Math.max(0, Date.now() - state.runStartedAt);
     appendConsole(pending.hadError ? "error" : "info", [(pending.hadError ? "✕ 运行结束（有错误）" : "✓ 运行结束") + "  ·  " + ms + " ms"], "run-done");
     setRunUi(false);
-    if (state.debug.active) { clearDebugLine(); setDebugButtons(false); setDebugStatus("运行结束"); }
+    if (state.debug.active) { clearDebugLine(); setDebugButtons(false); setDebugStatus(state.debug.backend === "cdp" ? "运行结束（断点未命中）" : "运行结束"); }
   }
 
   function stopRun() {
@@ -1854,7 +1865,7 @@
     const offset = Math.max(0, (state.runMeta && state.runMeta.sourceStartLine ? state.runMeta.sourceStartLine : 1) - 1);
     for (const line of currentBreakpoints()) {
       try {
-        const res = await cdp("Debugger.setBreakpointByUrl", { lineNumber: offset + line, columnNumber: 0, url: "lyra-user-code.js" });
+        const res = await cdp("Debugger.setBreakpointByUrl", { lineNumber: offset + line, columnNumber: 0, urlRegex: ".*lyra-user-code\\.js.*" });
         if (res && res.breakpointId) state.debug.breakpointIds.push(res.breakpointId);
       } catch { }
     }
@@ -1867,7 +1878,7 @@
     if (state.debug.stepOnStart) {
       try {
         const offset = Math.max(0, (state.runMeta && state.runMeta.sourceStartLine ? state.runMeta.sourceStartLine : 1) - 1);
-        const res = await cdp("Debugger.setBreakpointByUrl", { lineNumber: offset, columnNumber: 0, url: "lyra-user-code.js" });
+        const res = await cdp("Debugger.setBreakpointByUrl", { lineNumber: offset, columnNumber: 0, urlRegex: ".*lyra-user-code\\.js.*" });
         state.debug.tempBreakpointId = res && res.breakpointId || "";
         if (state.debug.tempBreakpointId) state.debug.breakpointIds.push(state.debug.tempBreakpointId);
       } catch { }

@@ -237,3 +237,10 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 - JS 编辑器优先使用 V8 CDP：constructor、表达式级单步、作用域按 V8 真实栈帧显示。
 - CDP 不可用时自动回退源码插桩调试。
 - 调试工具栏保留逐行运行、清空断点。
+
+## 1.21.1
+
+- 调试页新增「输出」面板，运行日志/错误直接显示。
+- CDP 断点 URL 改用正则匹配，避免 sourceURL 解析成完整 URL 后断点不命中。
+- 「逐行运行」用同样的断点规则。
+- 运行结束若断点未命中会显示提示。
