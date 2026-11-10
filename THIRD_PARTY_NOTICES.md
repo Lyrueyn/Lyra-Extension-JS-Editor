@@ -54,3 +54,21 @@ Files under `vendor/lint/beautify.js`.
 Copyright (C) 2007-2024 Einar Lielmanis, <einar@beautifier.io> and contributors.
 
 MIT License — same permission text as CodeMirror above.
+
+
+## acorn-loose
+
+Files under `vendor/lint/acorn-loose.js`.
+
+Copyright (C) 2012-2024 by various contributors.
+
+MIT License — same permission text as CodeMirror above.
+
+## ESLint
+
+Files under `vendor/eslint/linter.min.js` (eslint-linter-browserify bundle).
+
+Copyright OpenJS Foundation and other contributors, <https://openjsf.org/>.
+
+MIT License — same permission text as CodeMirror above. The bundle also
+contains ESLint's transitive dependencies under their respective MIT licenses.

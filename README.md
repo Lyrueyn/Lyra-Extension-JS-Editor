@@ -159,3 +159,10 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 - 问题列表消息精简；完整信息、规则说明和代码片段放进右侧 Detail 面板。
 - 单击问题查看详情，双击或 Detail 中的按钮跳到源码行。
 - 修复修复语法错误后静态分析被提前终止的问题（acorn-loose 恢复）。
+
+## 1.11.0
+
+- 集成 ESLint browser bundle，使用 ESLint 规则做标准静态检查。
+- 新增 no-const-assign、no-delete-var、no-unsafe-*、no-useless-* 等规则。
+- 自定义类型规则补充：BigInt/Number 混用、Symbol 隐式转字符串、不可删除属性、冻结对象写入、箭头函数 new、null 解构、不可迭代展开、Object.assign null、Reflect.get 非对象、负数 String 参数。
+- 静态问题列表保留短标题 + Detail 详情。

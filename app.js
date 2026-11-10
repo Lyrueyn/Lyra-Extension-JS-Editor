@@ -1152,6 +1152,16 @@
     if (rule === "invalid-json") return "JSON 字符串非法";
     if (rule === "unhandled-promise") return "Promise 未处理";
     if (rule === "unconditional-recursion") return "递归没有终止条件";
+    if (rule === "delete-nonconfigurable") return "不可删除属性";
+    if (rule === "symbol-concat") return "Symbol 不能转字符串";
+    if (rule === "bigint-mix") return "BigInt/Number 混用";
+    if (rule === "reflect-nonobject") return "Reflect.get 需要对象";
+    if (rule === "frozen-write") return "冻结对象不能修改";
+    if (rule === "invalid-string-arg") return "String 参数为负数";
+    if (rule === "new-arrow") return "不能 new 箭头函数";
+    if (rule === "invalid-destructure") return "不能解构 null/undefined";
+    if (rule === "invalid-spread") return "展开不可迭代值";
+    if (rule === "object-assign-null") return "Object.assign 目标为空";
     if (rule === "possible-off-by-one") return "循环可能越界";
     if (rule === "possible-param-type-error") return "参数可能为 undefined";
     if (rule === "no-dupe-args") return trim(message.replace(/^参数重复[：:]\s*/, "参数重复 "), 46);
@@ -1179,6 +1189,18 @@
       "possible-off-by-one": "循环条件用了 <= .length，最后一次循环会访问到数组末尾之后。通常应该改为 < .length。",
       "possible-param-type-error": "调用函数时传入了 null / undefined，而函数内部会访问该参数的属性，运行时会抛 TypeError。",
       "syntax": "代码不符合 JavaScript 语法，解析器无法完整生成语法树。修复后其余检查会恢复准确。",
+      "delete-nonconfigurable": "Object.defineProperty 把属性设成 configurable: false 后，严格模式下 delete 会抛 TypeError。",
+      "symbol-concat": "Symbol 不能隐式转换为字符串；如果确实要显示，使用 String(sym) 或 sym.description。",
+      "bigint-mix": "BigInt 和 Number 不能直接相加/相乘；两边统一成 BigInt 或 Number。",
+      "reflect-nonobject": "Reflect.get 的第一个参数必须是对象，传入数字/字符串/null 会抛 TypeError。",
+      "frozen-write": "Object.freeze 后对象不可修改；严格模式下赋值会抛 TypeError。",
+      "invalid-string-arg": "String.repeat / padStart / padEnd 的参数不能是负数，否则抛 RangeError。",
+      "new-arrow": "箭头函数没有 [[Construct]]，不能用 new 调用，会抛 TypeError。",
+      "invalid-destructure": "对 null / undefined 使用对象或数组解构会抛 TypeError；先判空或提供默认值。",
+      "invalid-spread": "展开运算要求右侧是可迭代对象；展开数字/布尔/普通对象会抛 TypeError。",
+      "object-assign-null": "Object.assign 的目标不能是 null / undefined。",
+      "no-const-assign": "const 声明的变量不能重新赋值，运行时会抛 TypeError。",
+      "no-delete-var": "delete 不能删除变量名，严格模式下会抛 SyntaxError。",
     };
     return map[rule] || "检查该问题对应的代码，并在运行前确认变量类型、边界和异步分支。";
   }
@@ -1315,6 +1337,136 @@
     if (state.bottomTab === "problems") { renderProblemList(); renderProblemDetail(); }
   }
 
+  const ESLINT_GLOBALS = {
+    console: "readonly", window: "readonly", document: "readonly", navigator: "readonly", location: "readonly", history: "readonly", screen: "readonly", localStorage: "readonly", sessionStorage: "readonly", indexedDB: "readonly", crypto: "readonly", performance: "readonly",
+    Math: "readonly", JSON: "readonly", Object: "readonly", Array: "readonly", String: "readonly", Number: "readonly", Boolean: "readonly", Date: "readonly", RegExp: "readonly", Promise: "readonly", Map: "readonly", Set: "readonly", WeakMap: "readonly", WeakSet: "readonly", Symbol: "readonly", BigInt: "readonly", Proxy: "readonly", Reflect: "readonly", Intl: "readonly", WebAssembly: "readonly",
+    Error: "readonly", TypeError: "readonly", RangeError: "readonly", SyntaxError: "readonly", EvalError: "readonly", ReferenceError: "readonly", NaN: "readonly", Infinity: "readonly", undefined: "readonly", globalThis: "readonly",
+    setTimeout: "readonly", clearTimeout: "readonly", setInterval: "readonly", clearInterval: "readonly", requestAnimationFrame: "readonly", cancelAnimationFrame: "readonly", queueMicrotask: "readonly", structuredClone: "readonly", fetch: "readonly",
+    alert: "readonly", confirm: "readonly", prompt: "readonly", print: "readonly", atob: "readonly", btoa: "readonly", TextEncoder: "readonly", TextDecoder: "readonly", URL: "readonly", URLSearchParams: "readonly", Blob: "readonly", File: "readonly", FileReader: "readonly", FormData: "readonly", Headers: "readonly", Request: "readonly", Response: "readonly", AbortController: "readonly", AbortSignal: "readonly", WebSocket: "readonly", XMLHttpRequest: "readonly", MutationObserver: "readonly", IntersectionObserver: "readonly", ResizeObserver: "readonly", CustomEvent: "readonly", Event: "readonly", EventTarget: "readonly", Node: "readonly", Element: "readonly", HTMLElement: "readonly", DocumentFragment: "readonly", NodeList: "readonly", HTMLCollection: "readonly", DOMParser: "readonly", XMLSerializer: "readonly", Notification: "readonly", Worker: "readonly", Image: "readonly", Audio: "readonly", Option: "readonly", getComputedStyle: "readonly", matchMedia: "readonly",
+    require: "readonly", module: "readonly", exports: "readonly", process: "readonly", Buffer: "readonly", __dirname: "readonly", __filename: "readonly",
+  };
+  const ESLINT_RULES = {
+    "no-undef": "error",
+    "no-unused-vars": ["warn", { args: "after-used", ignoreRestSiblings: true, caughtErrors: "none", varsIgnorePattern: "^_" }],
+    "no-redeclare": "error",
+    "no-const-assign": "error",
+    "no-delete-var": "error",
+    "no-dupe-args": "error",
+    "no-dupe-keys": "error",
+    "no-dupe-else-if": "error",
+    "no-duplicate-case": "error",
+    "no-unreachable": "error",
+    "no-unreachable-loop": "warn",
+    "no-func-assign": "error",
+    "no-obj-calls": "error",
+    "no-sparse-arrays": "warn",
+    "no-unexpected-multiline": "error",
+    "no-unsafe-finally": "error",
+    "no-unsafe-negation": "error",
+    "no-unsafe-optional-chaining": "error",
+    "no-constant-binary-expression": "warn",
+    "valid-typeof": "error",
+    "use-isnan": "error",
+    "no-async-promise-executor": "error",
+    "no-await-in-loop": "warn",
+    "no-prototype-builtins": "warn",
+    "no-self-assign": "error",
+    "no-self-compare": "error",
+    "no-setter-return": "error",
+    "no-unmodified-loop-condition": "warn",
+    "no-useless-catch": "warn",
+    "no-useless-escape": "warn",
+    "no-useless-return": "warn",
+    "no-with": "error",
+    "no-cond-assign": ["error", "except-parens"],
+    "no-constant-condition": ["warn", { checkLoops: false }],
+    "no-control-regex": "warn",
+    "no-debugger": "warn",
+    "no-empty-pattern": "warn",
+    "no-fallthrough": "error",
+    "no-global-assign": "error",
+    "no-implied-eval": "warn",
+    "no-eval": "warn",
+    "no-invalid-regexp": "error",
+    "no-loss-of-precision": "warn",
+    "no-misleading-character-class": "warn",
+    "no-new-wrappers": "warn",
+    "no-octal": "error",
+    "no-regex-spaces": "warn",
+    "no-shadow-restricted-names": "error",
+    "no-throw-literal": "warn",
+    "no-unused-labels": "warn",
+    "no-useless-backreference": "warn",
+    "no-useless-call": "warn",
+    "no-useless-concat": "warn",
+    "no-useless-constructor": "warn",
+    "no-useless-rename": "warn",
+    "no-unused-private-class-members": "warn",
+    "no-extra-boolean-cast": "warn",
+    "no-extra-semi": "warn",
+    "no-irregular-whitespace": "warn",
+    "no-ex-assign": "error",
+    "no-import-assign": "error",
+    eqeqeq: ["warn", "always", { null: "ignore" }],
+  };
+  const ESLINT_COVERED_RULES = new Set(["syntax", "no-undef", "no-unused-vars", "no-redeclare", "no-const-assign", "no-delete-var", "no-dupe-args", "no-dupe-keys", "no-dupe-else-if", "no-duplicate-case", "no-unreachable", "no-unreachable-loop", "no-func-assign", "no-obj-calls", "no-sparse-arrays", "no-unexpected-multiline", "no-unsafe-finally", "no-unsafe-negation", "no-unsafe-optional-chaining", "no-constant-binary-expression", "valid-typeof", "use-isnan", "no-async-promise-executor", "no-await-in-loop", "no-prototype-builtins", "no-self-assign", "no-self-compare", "no-setter-return", "no-unmodified-loop-condition", "no-useless-catch", "no-useless-escape", "no-useless-return", "no-with", "no-cond-assign", "no-constant-condition", "no-control-regex", "no-debugger", "no-empty-pattern", "no-fallthrough", "no-global-assign", "no-implied-eval", "no-eval", "no-invalid-regexp", "no-loss-of-precision", "no-misleading-character-class", "no-new-wrappers", "no-octal", "no-regex-spaces", "no-shadow-restricted-names", "no-throw-literal", "no-unused-labels", "no-useless-backreference", "no-useless-call", "no-useless-concat", "no-useless-constructor", "no-useless-rename", "no-unused-private-class-members", "no-extra-boolean-cast", "no-extra-semi", "no-irregular-whitespace", "no-ex-assign", "no-import-assign", "eqeqeq"]);
+  let eslintLinter = null;
+
+  function translateEslintMessage(rule, message) {
+    const msg = String(message || "");
+    if (rule === "no-undef") {
+      const m = msg.match(/'([^']+)' is not defined/);
+      return m ? "未定义变量：'" + m[1] + "'" : "未定义变量";
+    }
+    if (rule === "no-unused-vars") {
+      const m = msg.match(/'([^']+)'/);
+      return m ? "已声明但未使用：'" + m[1] + "'" : "已声明但未使用";
+    }
+    if (rule === "no-const-assign") return "const 变量不能重新赋值";
+    if (rule === "no-delete-var") return "不能 delete 变量";
+    if (rule === "no-redeclare") return "变量重复声明";
+    if (rule === "no-dupe-keys") return "对象字面量键重复";
+    if (rule === "no-dupe-args") return "函数参数重复";
+    if (rule === "no-dupe-else-if") return "重复的 else-if 条件";
+    if (rule === "no-duplicate-case") return "重复的 case";
+    if (rule === "no-unreachable") return "不可达代码";
+    if (rule === "no-func-assign") return "函数名被重新赋值";
+    if (rule === "valid-typeof") return "typeof 比较值不合法";
+    if (rule === "use-isnan") return "判断 NaN 应使用 Number.isNaN";
+    if (rule === "no-debugger") return "残留 debugger";
+    if (rule === "eqeqeq") return "建议使用 ===";
+    if (rule === "no-fallthrough") return "case 可能意外贯穿";
+    if (rule === "no-loss-of-precision") return "数字精度可能丢失";
+    if (rule === "no-throw-literal") return "throw 应抛出 Error";
+    if (rule === "no-eval" || rule === "no-implied-eval") return "eval 存在安全风险";
+    return "ESLint：" + msg;
+  }
+
+  function runEslint(code) {
+    if (!window.eslint || !window.eslint.Linter) return null;
+    try {
+      if (!eslintLinter) eslintLinter = new window.eslint.Linter();
+      const raw = eslintLinter.verify(String(code || ""), {
+        languageOptions: { ecmaVersion: 2024, sourceType: "module", globals: ESLINT_GLOBALS },
+        rules: ESLINT_RULES,
+      }, { filename: state.currentRel || "source.js" });
+      return raw.map((item) => {
+        const fatal = !!item.fatal;
+        const rule = fatal ? "syntax" : (item.ruleId || "eslint");
+        const severity = item.severity === 2 ? "error" : "warning";
+        return {
+          line: item.line || 1,
+          ch: Math.max(0, (item.column || 1) - 1),
+          severity: severity,
+          rule: rule,
+          message: fatal ? "语法错误：" + String(item.message || "").replace(/^Parsing error:\s*/i, "") : translateEslintMessage(rule, item.message),
+        };
+      });
+    } catch (e) {
+      return null;
+    }
+  }
+
   function runLint(opts) {
     opts = opts || {};
     clearTimeout(state.lintTimer);
@@ -1352,8 +1504,22 @@
           }
           problems.push({ line, ch, severity: "error", rule: "json", message: "JSON 语法错误：" + message });
         }
-      } else if (window.LyraJSTools) {
-        problems = window.LyraJSTools.lintCode(cm.getValue());
+      } else if (window.LyraJSTools || window.eslint) {
+        const code = cm.getValue();
+        const eslintProblems = runEslint(code);
+        const custom = window.LyraJSTools ? window.LyraJSTools.lintCode(code) : [];
+        if (eslintProblems) {
+          problems = eslintProblems.concat((custom || []).filter((p) => !ESLINT_COVERED_RULES.has(p.rule)));
+        } else {
+          problems = custom || [];
+        }
+        const seen = new Set();
+        problems = problems.filter((p) => {
+          const key = p.rule + ":" + p.line + ":" + p.ch + ":" + p.message;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        }).sort((a, b) => a.line - b.line || a.ch - b.ch).slice(0, 300);
       } else {
         toast("检查库没有加载", true);
       }

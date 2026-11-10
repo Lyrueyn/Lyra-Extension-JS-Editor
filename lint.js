@@ -374,12 +374,14 @@
           if (typeof node.value === "number") return { type: "number", value: node.value };
           if (typeof node.value === "string") return { type: "string", value: node.value };
           if (typeof node.value === "boolean") return { type: "boolean", value: node.value };
+          if (typeof node.value === "bigint") return { type: "bigint", value: String(node.value) };
           if (node.regex) return { type: "regexp" };
         }
         if (node.type === "TemplateLiteral") return { type: "string" };
         if (node.type === "ArrayExpression") return { type: "array", arrayLength: (node.elements || []).length };
         if (node.type === "ObjectExpression") return { type: "object" };
-        if ((node.type === "FunctionExpression") || (node.type === "ArrowFunctionExpression")) return { type: "function", callable: true };
+        if (node.type === "FunctionExpression") return { type: "function", callable: true };
+        if (node.type === "ArrowFunctionExpression") return { type: "function", callable: true, arrow: true };
         if (node.type === "ClassExpression") return { type: "class", callable: true };
         return { type: "unknown" };
       }
@@ -393,14 +395,33 @@
             return lookup(scope, node.name) || { type: "unknown" };
           }
           case "Literal":
-          case "TemplateLiteral":
-          case "ArrayExpression":
           case "ObjectExpression":
           case "FunctionExpression":
           case "ArrowFunctionExpression":
           case "ClassExpression":
             return literalInfo(node);
+          case "TemplateLiteral": {
+            for (const expr of node.expressions || []) {
+              const t = infer(expr, scope);
+              if (t.type === "symbol") warn(node, "symbol-concat", "Symbol 不能隐式转换为字符串，会抛 TypeError");
+            }
+            return { type: "string" };
+          }
+          case "ArrayExpression": {
+            for (const element of node.elements || []) {
+              if (element && element.type === "SpreadElement") {
+                const t = infer(element.argument, scope);
+                if (["number", "boolean", "object", "null", "undefined"].includes(t.type)) warn(element, "invalid-spread", "展开运算符用于不可迭代的 " + t.type + "，会抛 TypeError");
+              }
+            }
+            return literalInfo(node);
+          }
           case "UnaryExpression": {
+            if (node.operator === "delete" && node.argument && node.argument.type === "MemberExpression" && node.argument.object && node.argument.object.type === "Identifier") {
+              const owner = lookup(scope, node.argument.object.name);
+              const prop = node.argument.property && (node.argument.property.name || (node.argument.property.type === "Literal" ? node.argument.property.value : ""));
+              if (owner && owner.nonConfigurable && owner.nonConfigurable.has(prop)) warn(node, "delete-nonconfigurable", "属性 '" + prop + "' 被定义为不可配置，delete 在严格模式下会抛 TypeError");
+            }
             const arg = infer(node.argument, scope);
             if (node.operator === "typeof") return { type: "string" };
             if (node.operator === "!") return { type: "boolean" };
@@ -414,7 +435,14 @@
             if (op === "+") {
               const left = infer(node.left, scope);
               const right = infer(node.right, scope);
-              return left.type === "string" || right.type === "string" ? { type: "string" } : { type: "number" };
+              if (left.type === "symbol" || right.type === "symbol") warn(node, "symbol-concat", "Symbol 不能隐式转换为字符串，会抛 TypeError");
+              if ((left.type === "bigint" && right.type === "number") || (left.type === "number" && right.type === "bigint")) warn(node, "bigint-mix", "BigInt 和 Number 不能直接相加，会抛 TypeError");
+              return left.type === "string" || right.type === "string" ? { type: "string" } : left.type === "bigint" || right.type === "bigint" ? { type: "bigint" } : { type: "number" };
+            }
+            if (["-", "*", "/", "%", "**"].includes(op)) {
+              const left = infer(node.left, scope);
+              const right = infer(node.right, scope);
+              if ((left.type === "bigint" && right.type === "number") || (left.type === "number" && right.type === "bigint")) warn(node, "bigint-mix", "BigInt 和 Number 不能混合运算，会抛 TypeError");
             }
             return { type: "unknown" };
           }
@@ -434,6 +462,10 @@
             return node.expressions && node.expressions.length ? infer(node.expressions[node.expressions.length - 1], scope) : { type: "unknown" };
           case "NewExpression": {
             const callee = node.callee;
+            if (callee && callee.type === "Identifier") {
+              const cInfo = lookup(scope, callee.name);
+              if (cInfo && cInfo.arrow) warn(node, "new-arrow", "箭头函数不能使用 new，会抛 TypeError");
+            }
             if (callee && callee.type === "Identifier" && callee.name === "Array") {
               const arg = node.arguments && node.arguments[0];
               let num = null;
@@ -482,6 +514,53 @@
               try { JSON.parse(node.arguments[0].value); }
               catch (err) { warn(node, "invalid-json", "JSON.parse 的字符串不是合法 JSON，会抛 SyntaxError"); }
             }
+            if (callee && callee.type === "Identifier" && callee.name === "Symbol") return { type: "symbol" };
+            if (callee && callee.type === "Identifier" && callee.name === "BigInt") return { type: "bigint" };
+            if (callee && callee.type === "Identifier" && callee.name === "String") return { type: "string" };
+            if (callee && callee.type === "Identifier" && callee.name === "Number") return { type: "number" };
+            if (callee && callee.type === "Identifier" && callee.name === "Boolean") return { type: "boolean" };
+            if (callee && callee.type === "MemberExpression" && callee.object && callee.object.type === "Identifier" && callee.object.name === "Object" && callee.property && callee.property.name === "freeze") {
+              const arg = node.arguments && node.arguments[0];
+              const info = arg ? infer(arg, scope) : { type: "object" };
+              return Object.assign({}, info, { type: "object", frozen: true });
+            }
+            if (callee && callee.type === "MemberExpression" && callee.object && callee.object.type === "Identifier" && callee.object.name === "Object" && callee.property && callee.property.name === "defineProperty") {
+              const args = node.arguments || [];
+              const owner = args[0] && args[0].type === "Identifier" ? lookup(scope, args[0].name) : null;
+              const prop = args[1] && args[1].type === "Literal" ? String(args[1].value) : null;
+              const desc = args[2];
+              if (owner && prop && desc && desc.type === "ObjectExpression") {
+                const configurable = (desc.properties || []).find((p) => p.key && (p.key.name === "configurable" || p.key.value === "configurable"));
+                if (configurable && configurable.value && configurable.value.type === "Literal" && configurable.value.value === false) {
+                  if (!owner.nonConfigurable) owner.nonConfigurable = new Set();
+                  owner.nonConfigurable.add(prop);
+                }
+              }
+              return { type: "undefined" };
+            }
+            if (callee && callee.type === "MemberExpression" && callee.object && callee.object.type === "Identifier" && callee.object.name === "Reflect" && callee.property && callee.property.name === "get") {
+              const arg = node.arguments && node.arguments[0];
+              const info = arg ? infer(arg, scope) : { type: "unknown" };
+              if (["number", "string", "boolean", "null", "undefined", "bigint", "symbol"].includes(info.type)) warn(node, "reflect-nonobject", "Reflect.get 的第一个参数必须是对象，传入 " + info.type + " 会抛 TypeError");
+              return { type: "unknown" };
+            }
+            if (callee && callee.type === "MemberExpression" && callee.object && callee.object.type === "Identifier" && callee.object.name === "Object" && callee.property && callee.property.name === "assign") {
+              const arg = node.arguments && node.arguments[0];
+              const info = arg ? infer(arg, scope) : { type: "unknown" };
+              if (["null", "undefined"].includes(info.type)) warn(node, "object-assign-null", "Object.assign 的目标参数不能是 " + info.type + "，会抛 TypeError");
+              return { type: "object" };
+            }
+            if (callee && callee.type === "MemberExpression") {
+              const receiver = infer(callee.object, scope);
+              const method = callee.property && callee.property.name;
+              if (receiver.type === "string" && ["repeat", "padStart", "padEnd"].includes(method)) {
+                const arg = node.arguments && node.arguments[0];
+                let num = null;
+                if (arg && arg.type === "Literal" && typeof arg.value === "number") num = arg.value;
+                else if (arg && arg.type === "UnaryExpression" && arg.operator === "-" && arg.argument && arg.argument.type === "Literal" && typeof arg.argument.value === "number") num = -arg.argument.value;
+                if (num != null && num < 0) warn(node, "invalid-string-arg", "String." + method + "(" + num + ") 的参数不能为负数，会抛 RangeError");
+              }
+            }
             return { type: "unknown" };
           }
         }
@@ -510,6 +589,9 @@
           if (stmt.type === "VariableDeclaration") {
             for (const decl of stmt.declarations || []) {
               const info = infer(decl.init, scope);
+              if (decl.id && (decl.id.type === "ObjectPattern" || decl.id.type === "ArrayPattern") && ["null", "undefined"].includes(info.type)) {
+                warn(decl.id, "invalid-destructure", "无法从 " + info.type + " 解构，会抛 TypeError");
+              }
               if (decl.id && decl.id.type === "Identifier") declare(scope, decl.id.name, info);
             }
             continue;
@@ -526,7 +608,15 @@
             }
             continue;
           }
-          if (stmt.type === "ExpressionStatement") { infer(stmt.expression, scope); continue; }
+          if (stmt.type === "ExpressionStatement") {
+            if (stmt.expression && stmt.expression.type === "AssignmentExpression" && stmt.expression.left && stmt.expression.left.type === "MemberExpression" && stmt.expression.left.object && stmt.expression.left.object.type === "Identifier") {
+              const owner = lookup(scope, stmt.expression.left.object.name);
+              const prop = stmt.expression.left.property && (stmt.expression.left.property.name || (stmt.expression.left.property.type === "Literal" ? stmt.expression.left.property.value : ""));
+              if (owner && owner.frozen) warn(stmt.expression, "frozen-write", "对象被 Object.freeze 冻结，严格模式下修改属性 '" + prop + "' 会抛 TypeError");
+            }
+            infer(stmt.expression, scope);
+            continue;
+          }
           if (stmt.type === "ReturnStatement" || stmt.type === "ThrowStatement") { if (stmt.argument) infer(stmt.argument, scope); continue; }
           if (stmt.type === "IfStatement") {
             infer(stmt.test, scope);
