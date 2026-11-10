@@ -1918,6 +1918,8 @@
     state.debug.childTargets = {};
     state.debug.childSession = "";
     state.debug.sessionId = keepIframe;
+    state.debug.lastPauseKey = "";
+    state.debug.lastPauseAt = 0;
     state.debug.paused = false;
     state.debug.everPaused = false;
     state.debug.gateWaiting = false;
@@ -1983,6 +1985,17 @@
     setDebugButtons(false);
   }
   function debugOnCdpPaused(params, sessionId) {
+    const first = (params && Array.isArray(params.callFrames) && params.callFrames[0]) || null;
+    const loc = first && first.location ? (String(first.location.scriptId) + ":" + first.location.lineNumber) : "";
+    const key = loc || "";
+    const now = Date.now();
+    if (key && state.debug.lastPauseKey === key && now - (state.debug.lastPauseAt || 0) < 1200) {
+      debugOut("忽略重复暂停事件");
+      if (sessionId) { try { cdp("Debugger.resume", {}, sessionId).catch(() => { }); } catch { } }
+      return;
+    }
+    state.debug.lastPauseKey = key;
+    state.debug.lastPauseAt = now;
     state.debug.paused = true;
     state.debug.everPaused = true;
     if (sessionId) state.debug.sessionId = sessionId;
@@ -2041,6 +2054,8 @@
   }
   function debugOnResumed() {
     state.debug.paused = false;
+    state.debug.lastPauseKey = "";
+    state.debug.lastPauseAt = 0;
     if (!state.running) { setDebugButtons(false); clearDebugLine(); setDebugStatus("运行结束"); return; }
     state.debug.vars = {};
     clearDebugLine();

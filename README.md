@@ -307,3 +307,7 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 ## 1.21.15
 
 - runFrame 子目标改为每次运行后主动轮询 Target.getTargets 并直接附加，不再依赖 autoAttach 事件；第二次运行也能装断点。
+
+## 1.21.16
+
+- 去重重复的 V8 暂停事件；重复事件自动 resume 对应会话，避免同一脚本被两个会话同时暂停导致后续异步日志丢失。
