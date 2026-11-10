@@ -455,3 +455,30 @@ html[data-js-theme="light"] .problem-detail { background: #f6f9fc; }
 .CodeMirror-gutter.breakpoints { width: 14px; }
 .CodeMirror-gutter.breakpoints .CodeMirror-gutter-elt { width: 14px; }
 .cm-breakpoint { color: #ff6262; font-size: 15px; line-height: 1; text-align: center; padding-top: 1px; text-shadow: 0 0 5px rgba(255,80,80,.6); cursor: pointer; }
+
+/* 内嵌调试器 */
+.debug-layout { display: flex; flex-direction: column; min-height: 0; flex: 1; overflow: hidden; }
+.debug-layout[hidden] { display: none; }
+.debug-toolbar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--line); flex: 0 0 auto; }
+.debug-btn { height: 26px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--button-bg); color: var(--text); font-size: 11px; cursor: pointer; }
+.debug-btn.primary { border-color: var(--accent); color: var(--accent); }
+.debug-btn:disabled { opacity: .4; cursor: default; }
+.debug-status { color: var(--muted); font-size: 11px; margin-left: 8px; }
+.debug-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1.1fr 1.4fr 1.2fr; gap: 0; }
+.debug-column { min-width: 0; min-height: 0; overflow: auto; padding: 8px 10px; border-right: 1px solid var(--line); }
+.debug-column:last-child { border-right: 0; }
+.debug-column h4 { margin: 0 0 7px; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.debug-list { display: flex; flex-direction: column; gap: 2px; }
+.debug-stack-item { text-align: left; border: 0; background: transparent; color: var(--text); padding: 4px 6px; border-radius: 5px; cursor: pointer; font: 11px/1.4 Consolas, monospace; }
+.debug-stack-item:hover { background: var(--panel2); }
+.debug-stack-item.active { background: var(--panel2); color: var(--accent); }
+.debug-scope { margin-bottom: 8px; }
+.debug-scope-title { color: var(--accent); font-size: 10px; margin-bottom: 3px; }
+.debug-var { display: flex; gap: 6px; padding: 2px 4px; border-radius: 4px; font: 11px/1.45 Consolas, monospace; }
+.debug-var:hover { background: var(--panel2); }
+.debug-var-name { color: var(--text); }
+.debug-var-value { color: #9be7a8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.debug-eval-row { display: flex; gap: 5px; }
+.debug-eval-row input { flex: 1; min-width: 0; height: 26px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); color: var(--text); font: 11px Consolas, monospace; padding: 0 7px; }
+.debug-eval-result { margin-top: 7px; font: 11px/1.5 Consolas, monospace; color: #9be7a8; white-space: pre-wrap; }
+.cm-debug-paused { background: rgba(255, 194, 71, .22) !important; }

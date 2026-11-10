@@ -189,3 +189,10 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 - 新增「调试」按钮：打开 WebView2 DevTools，调试 `lyra-user-code.js` / `lyra-user-worker.js`。
 - 代码行号左侧可点击断点 gutter；运行时注入 `debugger;`，在 DevTools 中命中断点。
 - 断点按文件保存；DevTools 支持 Sources 断点、单步、作用域变量和 Console。
+
+## 1.16.0
+
+- 移除浏览器 DevTools 弹窗，改为编辑器内嵌调试面板。
+- 调试标签：继续、暂停、单步、进入、跳出。
+- 调用栈、当前作用域变量、暂停行高亮、栈帧求值。
+- 通过 WebView2 CDP 驱动真实 V8 调试器，不弹外部窗口。

@@ -22,7 +22,6 @@
       <button id="formatBtn" class="icon-tool" type="button" title="格式化文档 (Shift+Alt+F)">格式化</button>
       <button id="lintBtn" class="icon-tool" type="button" title="检查问题 (Ctrl+Shift+M)">检查</button>
       <button id="findBtn" class="icon-tool" type="button" title="查找替换 (Ctrl+F)">查找</button>
-      <button id="debugBtn" class="icon-tool" type="button" title="打开 DevTools 调试；可点击行号左侧设置断点">调试</button>
       <span class="tool-sep"></span>
       <button id="foldAllBtn" class="icon-tool" type="button" title="折叠全部">折叠</button>
       <button id="unfoldAllBtn" class="icon-tool" type="button" title="展开全部">展开</button>
@@ -101,6 +100,7 @@
         <div id="panelTabs">
           <button id="consoleTab" class="panel-tab active" type="button">Console</button>
           <button id="problemsTab" class="panel-tab" type="button">问题 <span id="problemsCount">0</span></button>
+          <button id="debugTab" class="panel-tab" type="button">调试</button>
           <span id="runtimeBadge" class="runtime-badge">浏览器沙箱</span>
           <span class="spacer"></span>
           <label class="panel-toggle" title="无 DOM 的代码在 Worker 中执行，可强制终止"><input id="workerSandbox" type="checkbox" checked/> Worker</label>
@@ -116,6 +116,21 @@
           <aside id="problemDetail" class="problem-detail">
             <div class="problem-detail-empty">选择一条问题查看详情</div>
           </aside>
+        </div>
+        <div id="debugLayout" class="debug-layout" hidden>
+          <div class="debug-toolbar">
+            <button id="debugResume" class="debug-btn primary" type="button" disabled>继续</button>
+            <button id="debugPause" class="debug-btn" type="button" disabled>暂停</button>
+            <button id="debugStepOver" class="debug-btn" type="button" disabled>单步</button>
+            <button id="debugStepInto" class="debug-btn" type="button" disabled>进入</button>
+            <button id="debugStepOut" class="debug-btn" type="button" disabled>跳出</button>
+            <span id="debugStatus" class="debug-status">选择「调试」标签后运行文件即可断点调试</span>
+          </div>
+          <div class="debug-body">
+            <section class="debug-column"><h4>调用栈</h4><div id="debugCallStack" class="debug-list"></div></section>
+            <section class="debug-column"><h4>变量</h4><div id="debugVariables" class="debug-list"></div></section>
+            <section class="debug-column"><h4>求值</h4><div class="debug-eval-row"><input id="debugEvalInput" type="text" placeholder="在暂停的栈帧里求值，例如 a + 1" spellcheck="false"/><button id="debugEvalBtn" class="debug-btn" type="button" disabled>求值</button></div><div id="debugEvalResult" class="debug-eval-result"></div></section>
+          </div>
         </div>
         <div class="repl-row">
           <span class="repl-prompt">›</span>
