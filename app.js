@@ -28,7 +28,7 @@
     lintTimer: 0,
     lintLineClasses: new Map(),
     bottomTab: "console",
-    debug: { enabled: false, active: false, paused: false, backend: "", frameId: null, frames: [], pausedLine: null, breakpointIds: [], tempBreakpointId: "", stepOnStart: false },
+    debug: { enabled: false, active: false, paused: false, backend: "", frameId: null, frames: [], pausedLine: null, breakpointIds: [], tempBreakpointId: "", stepOnStart: false, sessionId: "", sessions: [] },
     problemIndex: -1,
     consoleAutoScroll: true,
     pendingRunDone: null,
@@ -1828,8 +1828,10 @@
     if (value.unserializableValue) return String(value.unserializableValue);
     return value.description || value.type || "?";
   }
-  async function cdp(method, params) {
-    const res = await hostCall("editor.cdp-command", { method: method, params: JSON.stringify(params || {}) });
+  async function cdp(method, params, sessionId) {
+    const payload = { method: method, params: JSON.stringify(params || {}) };
+    if (sessionId) payload.sessionId = sessionId;
+    const res = await hostCall("editor.cdp-command", payload);
     if (!res || !res.ok) throw new Error((res && res.error) || ("调试命令失败：" + method));
     if (!res.result) return {};
     try { return JSON.parse(res.result); } catch { return {}; }
@@ -1842,8 +1844,10 @@
     state.debug.enabled = true;
   }
   async function debugClearBreakpoints() {
-    for (const id of state.debug.breakpointIds || []) {
-      try { await cdp("Debugger.removeBreakpoint", { breakpointId: id }); } catch { }
+    for (const item of state.debug.breakpointIds || []) {
+      const id = typeof item === "string" ? item : item.id;
+      const sid = typeof item === "string" ? "" : item.sessionId;
+      try { await cdp("Debugger.removeBreakpoint", { breakpointId: id }, sid); } catch { }
     }
     state.debug.breakpointIds = [];
   }
@@ -1873,13 +1877,13 @@
     ["debugResume", "debugStepOver", "debugStepInto", "debugStepOut", "debugEvalBtn"].forEach((id) => { const el = $(id); if (el) el.disabled = !on; });
     const pause = $("debugPause"); if (pause) pause.disabled = !state.running || on;
   }
-  async function debugSetCdpBreakpoints() {
+  async function debugSetCdpBreakpoints(sessionId) {
     const offset = Math.max(0, (state.runMeta && state.runMeta.sourceStartLine ? state.runMeta.sourceStartLine : 1) - 1);
     for (const line of currentBreakpoints()) {
       try {
-        const res = await cdp("Debugger.setBreakpointByUrl", { lineNumber: offset + line, columnNumber: 0, urlRegex: ".*lyra-user-code\\.js.*" });
-        if (res && res.breakpointId) state.debug.breakpointIds.push(res.breakpointId);
-        debugOut("断点 第" + (line + 1) + "行 → " + (res && res.breakpointId ? "已注册" : "无 ID") + "，位置 " + ((res && res.locations) ? res.locations.length : 0));
+        const res = await cdp("Debugger.setBreakpointByUrl", { lineNumber: offset + line, columnNumber: 0, urlRegex: ".*lyra-user-code\\.js.*" }, sessionId);
+        if (res && res.breakpointId) state.debug.breakpointIds.push({ id: res.breakpointId, sessionId: sessionId || "" });
+        debugOut((sessionId ? "[iframe] " : "") + "断点 第" + (line + 1) + "行 → " + (res && res.breakpointId ? "已注册" : "无 ID") + "，位置 " + ((res && res.locations) ? res.locations.length : 0));
       } catch (e) { debugOut("断点注册失败：" + (e && e.message ? e.message : e)); }
     }
   }
@@ -1893,7 +1897,25 @@
       debugOut("CDP 目标：" + infos.map((t) => t.type + " " + (t.url || "")).join(" | "));
     } catch (e) { debugOut("CDP 目标读取失败：" + (e && e.message ? e.message : e)); }
     await debugClearBreakpoints();
-    await debugSetCdpBreakpoints();
+    state.debug.sessions = [];
+    try {
+      const targets = await cdp("Target.getTargets");
+      const infos = (targets && targets.targetInfos) || [];
+      const candidates = infos.filter((t) => t.type === "iframe" || /js-editor|lyra-ext-js-editor|lyra-editor/i.test(String(t.url || "")));
+      debugOut("CDP 目标：" + infos.map((t) => t.type + " " + (t.url || "")).join(" | "));
+      for (const t of candidates) {
+        try {
+          const att = await cdp("Target.attachToTarget", { targetId: t.targetId, flatten: false });
+          if (!att || !att.sessionId) continue;
+          state.debug.sessions.push(att.sessionId);
+          await cdp("Debugger.enable", {}, att.sessionId);
+          await cdp("Runtime.enable", {}, att.sessionId);
+          await debugSetCdpBreakpoints(att.sessionId);
+          debugOut("已附加 iframe 调试目标：" + att.sessionId);
+        } catch (e) { debugOut("附加 iframe 目标失败：" + (e && e.message ? e.message : e)); }
+      }
+    } catch (e) { debugOut("CDP 目标读取失败：" + (e && e.message ? e.message : e)); }
+    await debugSetCdpBreakpoints("");
     if (state.debug.stepOnStart) {
       try {
         const offset = Math.max(0, (state.runMeta && state.runMeta.sourceStartLine ? state.runMeta.sourceStartLine : 1) - 1);
@@ -1910,8 +1932,9 @@
     setDebugStatus("V8 调试器已就绪，运行中…");
     setDebugButtons(false);
   }
-  function debugOnCdpPaused(params) {
+  function debugOnCdpPaused(params, sessionId) {
     state.debug.paused = true;
+    if (sessionId) state.debug.sessionId = sessionId;
     state.debug.frames = Array.isArray(params.callFrames) ? params.callFrames : [];
     const frame = state.debug.frames.find((f) => /lyra-user-code\.js/i.test(String(f.url || ""))) || state.debug.frames[0];
     state.debug.frameId = frame ? frame.callFrameId : null;
@@ -1929,7 +1952,7 @@
       const id = state.debug.tempBreakpointId;
       state.debug.tempBreakpointId = "";
       state.debug.breakpointIds = state.debug.breakpointIds.filter((x) => x !== id);
-      cdp("Debugger.removeBreakpoint", { breakpointId: id }).catch(() => { });
+      cdp("Debugger.removeBreakpoint", { breakpointId: id }, state.debug.sessionId).catch(() => { });
     }
     setBottomTab("debug");
     setDebugButtons(true);
@@ -2026,7 +2049,7 @@
     const out = $("debugEvalResult");
     if (state.debug.backend === "cdp") {
       try {
-        const res = await cdp("Debugger.evaluateOnCallFrame", { callFrameId: state.debug.frameId, expression: expression, returnByValue: true, generatePreview: true });
+        const res = await cdp("Debugger.evaluateOnCallFrame", { callFrameId: state.debug.frameId, expression: expression, returnByValue: true, generatePreview: true }, state.debug.sessionId);
         if (out) out.textContent = res.exceptionDetails ? "异常：" + (res.exceptionDetails.text || "") : debugValue(res.result);
       } catch (e) { if (out) out.textContent = String(e && e.message ? e.message : e); }
       return;
@@ -2039,7 +2062,7 @@
       const method = map[command] || "Debugger.resume";
       if (command === "resume") { debugOnResumed(); }
       else setDebugStatus(command === "pause" ? "暂停请求已发送" : "单步执行中…");
-      cdp(method, {}).catch((e) => setDebugStatus("调试命令失败：" + (e && e.message ? e.message : e)));
+      cdp(method, {}, state.debug.sessionId).catch((e) => setDebugStatus("调试命令失败：" + (e && e.message ? e.message : e)));
       return;
     }
     if (command === "resume") { sendDebugCommand("resume"); debugOnResumed(); }
@@ -2047,13 +2070,20 @@
     else if (command === "pause") sendDebugCommand("pause");
     else sendDebugCommand(command);
   }
-  function handleCdpEvent(method, params) {
+  function handleCdpEvent(method, params, sessionId) {
+    if (method === "Target.receivedMessageFromTarget") {
+      try {
+        const inner = JSON.parse((params && params.message) || "{}");
+        handleCdpEvent(inner.method || "", inner.params || {}, (params && params.sessionId) || "");
+      } catch { }
+      return;
+    }
     if (method === "Debugger.scriptParsed") {
       const url = String(params && params.url || "");
       if (/lyra-user-code|js-editor|lyra-/i.test(url)) debugOut("脚本已解析：" + url);
       return;
     }
-    if (method === "Debugger.paused") { debugOut("V8 已暂停"); debugOnCdpPaused(params || {}); }
+    if (method === "Debugger.paused") { debugOut("V8 已暂停" + (sessionId ? "（iframe）" : "")); debugOnCdpPaused(params || {}, sessionId); }
     else if (method === "Debugger.resumed") debugOnResumed();
   }
   function renderDebugCallStack() {

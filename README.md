@@ -249,3 +249,9 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 
 - 调试输出增加 CDP 诊断：后端、CDP 目标、脚本解析、断点位置。
 - 便于定位 iframe 目标/断点 URL 是否匹配。
+
+## 1.21.3
+
+- 主程序 CDP 允许 Target.* 命令，并支持 sessionId，可附加 iframe 调试目标。
+- 编辑器自动发现并附加 JS 编辑器 iframe，在会话里注册断点、接收暂停事件。
+- 调试输出显示 CDP 目标列表和 iframe 附加结果。
