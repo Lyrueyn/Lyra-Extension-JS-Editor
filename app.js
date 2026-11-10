@@ -110,6 +110,7 @@
   }
   window.addEventListener("message", (event) => {
     const d = event.data || {};
+    if (d.type === "editor.cdp-event") { handleCdpEvent(d.method, d.params || {}, d.sessionId || ""); return; }
     if (d.type === "theme" && typeof d.theme === "string" && THEMES.has(d.theme)) applyTheme(d.theme);
   });
 
