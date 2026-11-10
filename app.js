@@ -624,6 +624,111 @@
     return { html: prefix + safeCode + suffix, sourceStartLine: prefix.split("\n").length, lineCount: safeCode.split("\n").length };
   }
 
+  function collectDebugNames(ast, source) {
+    const names = new Set();
+    function addPattern(pattern, out) {
+      if (!pattern) return;
+      if (pattern.type === "Identifier") { if (typeof out.add === "function") out.add(pattern.name); else out.push(pattern.name); }
+      else if (pattern.type === "ObjectPattern") for (const prop of pattern.properties || []) addPattern(prop.value || prop.argument, out);
+      else if (pattern.type === "ArrayPattern") for (const el of pattern.elements || []) addPattern(el, out);
+      else if (pattern.type === "AssignmentPattern") addPattern(pattern.left, out);
+      else if (pattern.type === "RestElement") addPattern(pattern.argument, out);
+    }
+    function visitStatements(body) {
+      for (const stmt of body || []) {
+        if (!stmt) continue;
+        if (stmt.type === "VariableDeclaration") for (const decl of stmt.declarations || []) addPattern(decl.id, names),
+          decl.init && visitExpression(decl.init);
+        else if (stmt.type === "FunctionDeclaration") { if (stmt.id) names.add(stmt.id.name); }
+        else if (stmt.type === "ClassDeclaration") { if (stmt.id) names.add(stmt.id.name); }
+        else if (stmt.type === "ImportDeclaration") for (const spec of stmt.specifiers || []) if (spec.local) names.add(spec.local.name);
+        else if (stmt.type === "ForStatement") {
+          if (stmt.init && stmt.init.type === "VariableDeclaration") for (const decl of stmt.init.declarations || []) addPattern(decl.id, names);
+          visitStatements(stmt.body && stmt.body.type === "BlockStatement" ? stmt.body.body : [stmt.body]);
+        } else if (stmt.type === "ForInStatement" || stmt.type === "ForOfStatement") {
+          if (stmt.left && stmt.left.type === "VariableDeclaration") for (const decl of stmt.left.declarations || []) addPattern(decl.id, names);
+          visitStatements(stmt.body && stmt.body.type === "BlockStatement" ? stmt.body.body : [stmt.body]);
+        } else if (stmt.type === "BlockStatement") visitStatements(stmt.body);
+        else if (stmt.type === "IfStatement") { visitStatements(stmt.consequent && stmt.consequent.type === "BlockStatement" ? stmt.consequent.body : []); visitStatements(stmt.alternate && stmt.alternate.type === "BlockStatement" ? stmt.alternate.body : []); }
+        else if (stmt.type === "WhileStatement" || stmt.type === "DoWhileStatement" || stmt.type === "LabeledStatement") visitStatements(stmt.body && stmt.body.type === "BlockStatement" ? stmt.body.body : [stmt.body]);
+        else if (stmt.type === "TryStatement") { visitStatements(stmt.block && stmt.block.body); visitStatements(stmt.handler && stmt.handler.body && stmt.handler.body.body); visitStatements(stmt.finalizer && stmt.finalizer.body); }
+        else if (stmt.type === "SwitchStatement") for (const c of stmt.cases || []) visitStatements(c.consequent);
+      }
+    }
+    function visitExpression(node) {
+      if (!node || typeof node !== "object") return;
+      if (node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression" || node.type === "ClassExpression") return;
+      for (const key of Object.keys(node)) {
+        if (key === "loc" || key === "range" || key === "start" || key === "end") continue;
+        const value = node[key];
+        if (Array.isArray(value)) for (const item of value) if (item && item.type) visitExpression(item);
+        else if (value && value.type) visitExpression(value);
+      }
+    }
+    visitStatements(ast.body || []);
+    return names;
+  }
+
+  function buildDebugRunner(code, runId, breakpoints) {
+    const safeCode = String(code || "").replace(/<\/script/gi, "<\\/script");
+    const hooks = [
+      "var __runId=" + Number(runId) + ";",
+      "var __hadError=false;",
+      "var __send=function(level,args,meta){try{parent.postMessage({type:'js-run-console',runId:__runId,level:level,args:args.map(function(v){try{if(v instanceof Error)return v.stack||v.message;if(typeof v==='object')return JSON.stringify(v);return String(v);}catch(e){return String(v);}}),runtime:!!(meta&&meta.runtime),stack:(meta&&meta.stack)||''},'*');}catch(e){}};",
+      "['log','info','warn','error','debug'].forEach(function(level){var orig=console[level];console[level]=function(){__send(level,Array.prototype.slice.call(arguments));try{if(orig)orig.apply(console,arguments);}catch(e){}};});",
+      "window.addEventListener('error',function(e){var err=e.error;var msg=err&&err.message?err.message:(e.message||'运行错误');var stack=err&&err.stack?err.stack:(e.message||'')+(e.lineno?(' ('+e.lineno+':'+e.colno+')'):'');__hadError=true;__send('error',[msg],{runtime:true,stack:stack});});",
+      "window.addEventListener('unhandledrejection',function(e){var r=e.reason;var msg=r&&r.message?r.message:String(r);__hadError=true;__send('error',['Unhandled rejection: '+msg],{runtime:true,stack:(r&&r.stack)?r.stack:('Unhandled rejection: '+msg)});});",
+    ].join("\n");
+    const breakpointJson = JSON.stringify((breakpoints || []).slice());
+    const debugHook = [
+      "var __lyraBreakpoints=" + breakpointJson + ";",
+      "var __lyraStep=false;var __lyraPauseRequested=false;var __lyraPause=null;",
+      "function __lyraVal(v){try{if(v===undefined)return 'undefined';if(v===null)return 'null';if(typeof v==='string')return JSON.stringify(v);if(typeof v==='function')return 'ƒ '+(v.name||'anonymous');if(typeof v==='object'){var s=JSON.stringify(v);return s&&s.length>300?s.slice(0,300)+'…':s;}return String(v);}catch(e){return String(v);}}",
+      "function __lyraDebug(line,getters,evalFn){if(!__lyraStep&&!__lyraPauseRequested&&__lyraBreakpoints.indexOf(line)<0)return Promise.resolve();__lyraStep=false;__lyraPauseRequested=false;var vars={};for(var i=0;i<getters.length;i++){try{vars[getters[i][0]]=__lyraVal(getters[i][1]());}catch(e){vars[getters[i][0]]='<错误>';}}return new Promise(function(resolve){__lyraPause={resolve:resolve,evalFn:evalFn,line:line};parent.postMessage({type:'js-debug-paused',runId:__runId,line:line,vars:vars},'*');});}",
+      "window.addEventListener('message',function(e){var d=e.data||{};if(d.type!=='js-debug-command'||d.runId!==__runId)return;if(d.command==='eval'&&__lyraPause){try{parent.postMessage({type:'js-debug-eval',runId:__runId,value:__lyraVal(__lyraPause.evalFn(d.expression)),ok:true},'*');}catch(err){parent.postMessage({type:'js-debug-eval',runId:__runId,value:String(err),ok:false},'*');}return;}if(d.command==='pause'){__lyraPauseRequested=true;return;}var p=__lyraPause;if(!p)return;__lyraPause=null;if(d.command==='step')__lyraStep=true;else if(d.command==='resume')__lyraStep=false;p.resolve();});",
+    ].join("\n");
+    const prefix = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body><script>\n(async function(){\n" + hooks + "\n" + debugHook + "\ntry {\n";
+    const done = "setTimeout(function(){parent.postMessage({type:'js-run-done',runId:__runId,hadError:__hadError},'*');},0);";
+    const suffix = "\n} catch (e) { __hadError=true; __send('error',[e && e.message ? e.message : String(e)], {runtime:true, stack:e && e.stack ? e.stack : String(e)}); }\n" + done + "\n})();\n//# sourceURL=lyra-user-code.js\n</" + "script></body></html>";
+    let body = safeCode;
+    try {
+      const acorn = window.acorn;
+      if (!acorn || !acorn.parse) throw new Error("acorn unavailable");
+      const ast = acorn.parse(code, { ecmaVersion: "latest", sourceType: "script", locations: true, allowHashBang: true });
+      if ((ast.body || []).some((n) => n.type === "ImportDeclaration" || n.type.startsWith("Export"))) throw new Error("module");
+      const names = collectDebugNames(ast, code);
+      const inserts = [];
+      function debugCall(line) {
+        const getters = Array.from(names).slice(0, 120).map((name) => "[\"" + name.replace(/\\/g, "\\\\").replace(/"/g, "\\\"") + "\",function(){try{return " + name + "}catch(e){return undefined}}]").join(",");
+        return "await __lyraDebug(" + line + ",[" + getters + "],function(expr){try{return eval(expr)}catch(e){return e&&e.message?e.message:String(e)}});";
+      }
+      function addStmt(stmt) {
+        if (!stmt || stmt.type === "EmptyStatement") return;
+        if (stmt.type === "FunctionDeclaration" || stmt.type === "ClassDeclaration") {
+          const lineStart = code.lastIndexOf("\n", stmt.start - 1) + 1;
+          if (/^\s*$/.test(code.slice(lineStart, stmt.start))) inserts.push({ pos: stmt.start, text: debugCall(stmt.loc.start.line) });
+          return;
+        }
+        if (stmt.type === "ImportDeclaration" || stmt.type.startsWith("Export")) return;
+        if (stmt.type === "ExpressionStatement" && stmt.directive) return;
+        const lineStart = code.lastIndexOf("\n", stmt.start - 1) + 1;
+        if (/^\s*$/.test(code.slice(lineStart, stmt.start))) inserts.push({ pos: stmt.start, text: debugCall(stmt.loc.start.line) });
+        const bodyOf = (node) => node && node.type === "BlockStatement" ? node.body : node && node.type ? [node] : [];
+        if (stmt.type === "BlockStatement") bodyOf(stmt).forEach(addStmt);
+        else if (stmt.type === "IfStatement") { bodyOf(stmt.consequent).forEach(addStmt); bodyOf(stmt.alternate).forEach(addStmt); }
+        else if (stmt.type === "ForStatement" || stmt.type === "ForInStatement" || stmt.type === "ForOfStatement" || stmt.type === "WhileStatement" || stmt.type === "DoWhileStatement" || stmt.type === "LabeledStatement") bodyOf(stmt.body).forEach(addStmt);
+        else if (stmt.type === "TryStatement") { bodyOf(stmt.block).forEach(addStmt); if (stmt.handler && stmt.handler.body) bodyOf(stmt.handler.body).forEach(addStmt); if (stmt.finalizer) bodyOf(stmt.finalizer).forEach(addStmt); }
+        else if (stmt.type === "SwitchStatement") for (const c of stmt.cases || []) bodyOf({ type: "BlockStatement", body: c.consequent }).forEach(addStmt);
+      }
+      (ast.body || []).forEach(addStmt);
+      inserts.sort((a, b) => b.pos - a.pos);
+      for (const ins of inserts) body = body.slice(0, ins.pos) + ins.text + body.slice(ins.pos);
+    } catch (e) {
+      console.error("debug instrument failed", e);
+    }
+    return { html: prefix + body + suffix, sourceStartLine: prefix.split("\n").length, lineCount: body.split("\n").length };
+  }
+
   function buildWorkerRunner(code, runId) {
     const safeCode = String(code || "").replace(/<\/script/gi, "<\\/script");
     const hooks = [
@@ -676,9 +781,9 @@
     try {
       const debugging = allowDebug && state.debug.active;
       if (debugging) {
-        const runner = buildRunner(code, state.runSeq);
+        const runner = buildDebugRunner(code, state.runSeq, Array.from(currentBreakpoints()));
         state.runMeta = { sourceStartLine: runner.sourceStartLine, lineCount: runner.lineCount };
-        try { await debugPrepare(runner); } catch (e) { toast("调试器启动失败：" + (e && e.message ? e.message : e), true); state.debug.active = false; }
+        await debugPrepare(runner);
         $("runFrame").srcdoc = runner.html;
         return;
       }
@@ -1377,8 +1482,7 @@
     if (debugLayout) debugLayout.hidden = state.bottomTab !== "debug";
     if (state.bottomTab === "problems") { renderProblemList(); renderProblemDetail(); }
     if (state.bottomTab === "debug") {
-      setDebugStatus(state.debug.paused ? "已暂停" : "选择「调试」标签后运行文件即可断点调试");
-      debugEnsure().then(() => setDebugStatus(state.debug.paused ? "已暂停" : "调试器已就绪，运行文件即可")).catch((e) => setDebugStatus("调试器不可用：" + (e && e.message ? e.message : e)));
+      setDebugStatus(state.debug.paused ? "已暂停" : "在行号左侧点断点，然后运行文件");
     }
   }
 
@@ -1635,7 +1739,6 @@
     if (set.has(line)) set.delete(line); else set.add(line);
     renderBreakpoints();
     setStatus(set.has(line) ? "已设置断点：第 " + (line + 1) + " 行" : "已清除断点：第 " + (line + 1) + " 行");
-    debugSyncBreakpoints().catch(() => { });
   }
   function codeWithBreakpoints(code) {
     const set = currentBreakpoints();
@@ -1684,18 +1787,11 @@
     state.debug.breakpointIds = [];
   }
   async function debugPrepare(runner) {
-    await debugEnsure();
-    await debugClearBreakpoints();
-    const offset = Math.max(0, (state.runMeta && state.runMeta.sourceStartLine ? state.runMeta.sourceStartLine : 1) - 1);
-    for (const line of currentBreakpoints()) {
-      try {
-        const res = await cdp("Debugger.setBreakpointByUrl", { lineNumber: offset + line, columnNumber: 0, url: "lyra-user-code.js" });
-        if (res && res.breakpointId) state.debug.breakpointIds.push(res.breakpointId);
-      } catch { }
-    }
     state.debug.paused = false;
+    state.debug.line = null;
+    state.debug.vars = {};
     state.debug.frames = [];
-    state.debug.frameId = null;
+    clearDebugLine();
     setDebugStatus("调试器已就绪，运行中…");
     setDebugButtons(false);
   }
@@ -1716,35 +1812,66 @@
     }
     state.debug.pausedLine = null;
   }
-  function debugOnPaused(params) {
+  function debugOnPausedLocal(d) {
     state.debug.paused = true;
-    state.debug.frames = Array.isArray(params.callFrames) ? params.callFrames : [];
-    const frame = state.debug.frames.find((f) => /lyra-user-code\.js/i.test(String(f.url || ""))) || state.debug.frames[0];
-    state.debug.frameId = frame ? frame.callFrameId : null;
-    state.debug.selectedFrame = frame ? state.debug.frames.indexOf(frame) : 0;
+    state.debug.line = Number(d.line) || 0;
+    state.debug.vars = d.vars || {};
     clearDebugLine();
-    const line = debugFrameSourceLine(frame);
-    if (cm && line >= 0 && line < cm.lineCount()) {
-      state.debug.pausedLine = line;
-      cm.addLineClass(line, "background", "cm-debug-paused");
-      cm.setCursor({ line: line, ch: (frame.location.columnNumber || 0) });
-      cm.scrollIntoView({ line: line, ch: 0 }, 100);
+    if (cm && state.debug.line >= 0 && state.debug.line < cm.lineCount()) {
+      state.debug.pausedLine = state.debug.line;
+      cm.addLineClass(state.debug.pausedLine, "background", "cm-debug-paused");
+      cm.setCursor({ line: state.debug.pausedLine, ch: 0 });
+      cm.scrollIntoView({ line: state.debug.pausedLine, ch: 0 }, 100);
     }
     setBottomTab("debug");
     setDebugButtons(true);
-    setDebugStatus("已暂停" + (params.reason ? "：" + params.reason : "") + (line >= 0 ? " · 第 " + (line + 1) + " 行" : ""));
-    renderDebugCallStack();
-    renderDebugVariables().catch(() => { });
+    setDebugStatus("已暂停 · 第 " + (state.debug.line + 1) + " 行");
+    renderDebugCallStackLocal();
+    renderDebugVariablesLocal();
   }
   function debugOnResumed() {
     state.debug.paused = false;
-    state.debug.frames = [];
-    state.debug.frameId = null;
+    state.debug.vars = {};
     clearDebugLine();
     setDebugButtons(false);
     setDebugStatus("运行中…");
-    renderDebugCallStack();
+    renderDebugCallStackLocal();
     const box = $("debugVariables"); if (box) box.innerHTML = '<div class="debug-empty">暂停后显示变量</div>';
+  }
+  function renderDebugCallStackLocal() {
+    const box = $("debugCallStack");
+    if (!box) return;
+    box.innerHTML = "";
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "debug-stack-item active";
+    item.textContent = "脚本顶层  ·  L" + ((state.debug.line || 0) + 1);
+    box.appendChild(item);
+  }
+  function renderDebugVariablesLocal() {
+    const box = $("debugVariables");
+    if (!box) return;
+    const vars = state.debug.vars || {};
+    const keys = Object.keys(vars);
+    if (!keys.length) { box.innerHTML = '<div class="debug-empty">当前行没有可读取变量</div>'; return; }
+    box.innerHTML = '<div class="debug-scope"><div class="debug-scope-title">局部</div>' + keys.map((name) => '<div class="debug-var"><span class="debug-var-name">' + escapeHtml(name) + '</span><span class="debug-var-value">' + escapeHtml(vars[name]) + '</span></div>').join("") + '</div>';
+  }
+  function sendDebugCommand(command, extra) {
+    const frame = $("runFrame");
+    if (!frame || !frame.contentWindow) return;
+    frame.contentWindow.postMessage(Object.assign({ type: "js-debug-command", runId: state.runSeq, command: command }, extra || {}), "*");
+  }
+  function debugEval() {
+    const input = $("debugEvalInput");
+    const expression = input ? input.value.trim() : "";
+    if (!expression || !state.debug.paused) return;
+    sendDebugCommand("eval", { expression: expression });
+  }
+  function debugCommand(command) {
+    if (command === "resume") { sendDebugCommand("resume"); debugOnResumed(); }
+    else if (command === "step") { sendDebugCommand("step"); setDebugStatus("单步执行中…"); }
+    else if (command === "pause") sendDebugCommand("pause");
+    else sendDebugCommand(command);
   }
   function handleCdpEvent(method, params) {
     if (method === "Debugger.paused") debugOnPaused(params || {});
@@ -1798,35 +1925,7 @@
     }
     box.innerHTML = html.join("") || '<div class="debug-empty">没有可显示变量</div>';
   }
-  async function debugSyncBreakpoints() {
-    if (!state.debug.active || !state.running || !state.runMeta) return;
-    try {
-      await debugClearBreakpoints();
-      const offset = Math.max(0, (state.runMeta.sourceStartLine || 1) - 1);
-      for (const line of currentBreakpoints()) {
-        const res = await cdp("Debugger.setBreakpointByUrl", { lineNumber: offset + line, columnNumber: 0, url: "lyra-user-code.js" });
-        if (res && res.breakpointId) state.debug.breakpointIds.push(res.breakpointId);
-      }
-    } catch { }
-  }
 
-  async function debugEval() {
-    if (!state.debug.paused || !state.debug.frameId) return;
-    const input = $("debugEvalInput");
-    const expression = input ? input.value.trim() : "";
-    if (!expression) return;
-    const out = $("debugEvalResult");
-    try {
-      const res = await cdp("Debugger.evaluateOnCallFrame", { callFrameId: state.debug.frameId, expression: expression, returnByValue: true, generatePreview: true });
-      if (res.exceptionDetails) {
-        if (out) out.textContent = "异常：" + (res.exceptionDetails.text || res.exceptionDetails.exception && res.exceptionDetails.exception.description || "");
-      } else {
-        if (out) out.textContent = debugValue(res.result);
-      }
-    } catch (e) {
-      if (out) out.textContent = String(e && e.message ? e.message : e);
-    }
-  }
   async function debugControl(method) {
     try {
       await cdp(method, {});
@@ -1836,11 +1935,11 @@
   }
   function bindDebuggerUi() {
     $("debugTab").addEventListener("click", () => setBottomTab("debug"));
-    $("debugResume").addEventListener("click", () => debugControl("Debugger.resume"));
-    $("debugPause").addEventListener("click", () => debugControl("Debugger.pause"));
-    $("debugStepOver").addEventListener("click", () => debugControl("Debugger.stepOver"));
-    $("debugStepInto").addEventListener("click", () => debugControl("Debugger.stepInto"));
-    $("debugStepOut").addEventListener("click", () => debugControl("Debugger.stepOut"));
+    $("debugResume").addEventListener("click", () => debugCommand("resume"));
+    $("debugPause").addEventListener("click", () => debugCommand("pause"));
+    $("debugStepOver").addEventListener("click", () => debugCommand("step"));
+    $("debugStepInto").addEventListener("click", () => debugCommand("step"));
+    $("debugStepOut").addEventListener("click", () => debugCommand("step"));
     $("debugEvalBtn").addEventListener("click", debugEval);
     $("debugEvalInput").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); debugEval(); } });
   }
@@ -1892,6 +1991,15 @@
       $("statusPos").textContent = "Ln " + (pos.line + 1) + ", Col " + (pos.ch + 1);
     });
     cm.on("gutterClick", (editor, line, gutter) => { if (gutter === "breakpoints") toggleBreakpoint(line); });
+    try {
+      const breakGutter = cm.getWrapperElement().querySelector(".CodeMirror-gutter.breakpoints");
+      if (breakGutter) breakGutter.addEventListener("click", (event) => {
+        if (event.target && event.target.closest && event.target.closest(".CodeMirror-foldgutter, .CodeMirror-linenumbers")) return;
+        let line = -1;
+        try { line = cm.lineAtHeight(event.clientY, "window"); } catch { }
+        if (line >= 0) toggleBreakpoint(line);
+      });
+    } catch { }
     renderBreakpoints();
     cm.on("changes", updateHistoryButtons);
     cm.on("inputRead", (editor, change) => {
@@ -1927,6 +2035,8 @@
       else appendConsole(d.level, d.args);
       return;
     }
+    if (d.type === "js-debug-paused") { debugOnPausedLocal(d); return; }
+    if (d.type === "js-debug-eval") { const out = $("debugEvalResult"); if (out) out.textContent = String(d.value == null ? "" : d.value); return; }
     if (d.type === "js-run-done") endRun(!!d.hadError);
   }
 

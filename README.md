@@ -196,3 +196,10 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 - 调试标签：继续、暂停、单步、进入、跳出。
 - 调用栈、当前作用域变量、暂停行高亮、栈帧求值。
 - 通过 WebView2 CDP 驱动真实 V8 调试器，不弹外部窗口。
+
+## 1.17.0
+
+- 调试器改为纯编辑器内嵌实现，不再依赖 WebView2 DevTools/CDP，也不会弹浏览器窗口。
+- 断点：行号左侧红点，运行时暂停在该行。
+- 继续/单步/暂停、暂停行高亮、变量面板、表达式求值。
+- 当前支持顶层与块级语句（for/if/try/switch 等）；函数体内部暂未插桩。
