@@ -673,7 +673,7 @@
       "function __lyraDebug(line,getters,evalFn){if(!__lyraStep&&!__lyraPauseRequested&&__lyraBreakpoints.indexOf(line)<0)return Promise.resolve();__lyraStep=false;__lyraPauseRequested=false;var vars={};for(var i=0;i<getters.length;i++){try{vars[getters[i][0]]=__lyraVal(getters[i][1]());}catch(e){vars[getters[i][0]]='<错误>';}}return new Promise(function(resolve){__lyraPause={resolve:resolve,evalFn:evalFn,line:line};parent.postMessage({type:'js-debug-paused',runId:__runId,line:line,vars:vars},'*');});}",
       "window.addEventListener('message',function(e){var d=e.data||{};if(d.type!=='js-debug-command'||d.runId!==__runId)return;if(d.command==='eval'&&__lyraPause){try{parent.postMessage({type:'js-debug-eval',runId:__runId,value:__lyraVal(__lyraPause.evalFn(d.expression)),ok:true},'*');}catch(err){parent.postMessage({type:'js-debug-eval',runId:__runId,value:String(err),ok:false},'*');}return;}if(d.command==='breakpoints'){__lyraBreakpoints=Array.isArray(d.breakpoints)?d.breakpoints:[];return;}if(d.command==='pause'){__lyraPauseRequested=true;return;}var p=__lyraPause;if(!p)return;__lyraPause=null;if(d.command==='step')__lyraStep=true;else if(d.command==='resume')__lyraStep=false;p.resolve();});",
     ].join("\n");
-    const prefix = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body><script>\n(async function(){\n" + hooks + "\n" + debugHook + "\ntry {\n";
+    const prefix = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body><script>\n(async function(){\n" + hooks + "\n" + debugHook + "\n" + (stepOnStart ? "await __lyraDebug(1,[],function(){});" : "") + "\ntry {\n";
     const done = "setTimeout(function(){parent.postMessage({type:'js-run-done',runId:__runId,hadError:__hadError},'*');},0);";
     const suffix = "\n} catch (e) { __hadError=true; __send('error',[e && e.message ? e.message : String(e)], {runtime:true, stack:e && e.stack ? e.stack : String(e)}); }\n" + done + "\n})();\n//# sourceURL=lyra-user-code.js\n</" + "script></body></html>";
     let body = safeCode;
@@ -723,10 +723,16 @@
       }
       const instrumentedFns = new Set();
       function instrumentFunction(fn, method) {
-        if (!fn || !fn.body || fn.body.type !== "BlockStatement" || instrumentedFns.has(fn)) return;
+        if (!fn || !fn.body || instrumentedFns.has(fn)) return;
         instrumentedFns.add(fn);
         if (!fn.async) inserts.push({ pos: method ? method.key.start : fn.start, text: "async " });
-        instrumentBody(fn.body.body);
+        if (fn.body.type === "BlockStatement") {
+          instrumentBody(fn.body.body);
+        } else if (fn.type === "ArrowFunctionExpression") {
+          const call = debugCall(fn.body.loc.start.line);
+          inserts.push({ pos: fn.body.start, text: "{ " + call + " return " });
+          inserts.push({ pos: fn.body.end, text: "; }" });
+        }
       }
       function walkFunctions(node, parent) {
         if (!node || typeof node !== "object") return;
@@ -1846,7 +1852,7 @@
   }
   function debugOnPausedLocal(d) {
     state.debug.paused = true;
-    state.debug.line = Number(d.line) || 0;
+    state.debug.line = Math.max(0, (Number(d.line) || 1) - 1);
     state.debug.vars = d.vars || {};
     clearDebugLine();
     if (cm && state.debug.line >= 0 && state.debug.line < cm.lineCount()) {
