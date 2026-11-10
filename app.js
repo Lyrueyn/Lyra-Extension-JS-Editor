@@ -141,7 +141,7 @@
   if (host) {
     host.addEventListener("message", (event) => {
       const d = event.data || {};
-      if (d.type === "editor.cdp-event") { handleCdpEvent(d.method, d.params || {}); return; }
+      if (d.type === "editor.cdp-event") { handleCdpEvent(d.method, d.params || {}, d.sessionId || ""); return; }
       const p = state.pending.get(d.requestId);
       if (!p) return;
       state.pending.delete(d.requestId);
@@ -1905,7 +1905,7 @@
       debugOut("CDP 目标：" + infos.map((t) => t.type + " " + (t.url || "")).join(" | "));
       for (const t of candidates) {
         try {
-          const att = await cdp("Target.attachToTarget", { targetId: t.targetId, flatten: false });
+          const att = await cdp("Target.attachToTarget", { targetId: t.targetId, flatten: true });
           if (!att || !att.sessionId) continue;
           state.debug.sessions.push(att.sessionId);
           await cdp("Debugger.enable", {}, att.sessionId);
