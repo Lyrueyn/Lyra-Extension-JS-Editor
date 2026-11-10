@@ -655,7 +655,7 @@
     return names;
   }
 
-  function buildDebugRunner(code, runId, breakpoints) {
+  function buildDebugRunner(code, runId, breakpoints, stepOnStart) {
     const safeCode = String(code || "").replace(/<\/script/gi, "<\\/script");
     const hooks = [
       "var __runId=" + Number(runId) + ";",
@@ -668,10 +668,10 @@
     const breakpointJson = JSON.stringify((breakpoints || []).slice());
     const debugHook = [
       "var __lyraBreakpoints=" + breakpointJson + ";",
-      "var __lyraStep=false;var __lyraPauseRequested=false;var __lyraPause=null;",
+      "var __lyraStep=" + (stepOnStart ? "true" : "false") + ";var __lyraPauseRequested=false;var __lyraPause=null;",
       "function __lyraVal(v){try{if(v===undefined)return 'undefined';if(v===null)return 'null';if(typeof v==='string')return JSON.stringify(v);if(typeof v==='function')return 'ƒ '+(v.name||'anonymous');if(typeof v==='object'){var s=JSON.stringify(v);return s&&s.length>300?s.slice(0,300)+'…':s;}return String(v);}catch(e){return String(v);}}",
       "function __lyraDebug(line,getters,evalFn){if(!__lyraStep&&!__lyraPauseRequested&&__lyraBreakpoints.indexOf(line)<0)return Promise.resolve();__lyraStep=false;__lyraPauseRequested=false;var vars={};for(var i=0;i<getters.length;i++){try{vars[getters[i][0]]=__lyraVal(getters[i][1]());}catch(e){vars[getters[i][0]]='<错误>';}}return new Promise(function(resolve){__lyraPause={resolve:resolve,evalFn:evalFn,line:line};parent.postMessage({type:'js-debug-paused',runId:__runId,line:line,vars:vars},'*');});}",
-      "window.addEventListener('message',function(e){var d=e.data||{};if(d.type!=='js-debug-command'||d.runId!==__runId)return;if(d.command==='eval'&&__lyraPause){try{parent.postMessage({type:'js-debug-eval',runId:__runId,value:__lyraVal(__lyraPause.evalFn(d.expression)),ok:true},'*');}catch(err){parent.postMessage({type:'js-debug-eval',runId:__runId,value:String(err),ok:false},'*');}return;}if(d.command==='pause'){__lyraPauseRequested=true;return;}var p=__lyraPause;if(!p)return;__lyraPause=null;if(d.command==='step')__lyraStep=true;else if(d.command==='resume')__lyraStep=false;p.resolve();});",
+      "window.addEventListener('message',function(e){var d=e.data||{};if(d.type!=='js-debug-command'||d.runId!==__runId)return;if(d.command==='eval'&&__lyraPause){try{parent.postMessage({type:'js-debug-eval',runId:__runId,value:__lyraVal(__lyraPause.evalFn(d.expression)),ok:true},'*');}catch(err){parent.postMessage({type:'js-debug-eval',runId:__runId,value:String(err),ok:false},'*');}return;}if(d.command==='breakpoints'){__lyraBreakpoints=Array.isArray(d.breakpoints)?d.breakpoints:[];return;}if(d.command==='pause'){__lyraPauseRequested=true;return;}var p=__lyraPause;if(!p)return;__lyraPause=null;if(d.command==='step')__lyraStep=true;else if(d.command==='resume')__lyraStep=false;p.resolve();});",
     ].join("\n");
     const prefix = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body><script>\n(async function(){\n" + hooks + "\n" + debugHook + "\ntry {\n";
     const done = "setTimeout(function(){parent.postMessage({type:'js-run-done',runId:__runId,hadError:__hadError},'*');},0);";
@@ -693,7 +693,6 @@
       }
       function functionHasBreakpoint(node) {
         if (!node || !node.loc) return false;
-        const end = node.loc.end.line + breakpoints.length + 2000;
         for (const bp of currentBreakpoints()) {
           const line = bp + 1;
           if (line >= node.loc.start.line && line <= node.loc.end.line) return true;
@@ -713,25 +712,7 @@
       }
       function addStmt(stmt) {
         if (!stmt || stmt.type === "EmptyStatement") return;
-        if (stmt.type === "FunctionDeclaration") {
-          addDebugCall(stmt);
-          if (functionHasBreakpoint(stmt)) {
-            if (!stmt.async) inserts.push({ pos: stmt.start, text: "async " });
-            if (stmt.body && stmt.body.body) instrumentBody(stmt.body.body);
-          }
-          return;
-        }
-        if (stmt.type === "ClassDeclaration") {
-          addDebugCall(stmt);
-          for (const member of (stmt.body && stmt.body.body) || []) {
-            if (member.type !== "MethodDefinition" || !member.value || !member.value.body) continue;
-            if (member.kind === "constructor" || member.kind === "get" || member.kind === "set") continue;
-            if (!functionHasBreakpoint(member.value)) continue;
-            if (!member.value.async) inserts.push({ pos: member.key.start, text: "async " });
-            instrumentBody(member.value.body.body);
-          }
-          return;
-        }
+        if (stmt.type === "FunctionDeclaration" || stmt.type === "ClassDeclaration") return;
         addDebugCall(stmt);
         const bodyOf = (node) => node && node.type === "BlockStatement" ? node.body : node && node.type ? [node] : [];
         if (stmt.type === "BlockStatement") instrumentBody(stmt.body);
@@ -740,6 +721,33 @@
         else if (stmt.type === "TryStatement") { if (stmt.block) instrumentBody(stmt.block.body); if (stmt.handler && stmt.handler.body) instrumentBody(stmt.handler.body.body); if (stmt.finalizer) instrumentBody(stmt.finalizer.body); }
         else if (stmt.type === "SwitchStatement") for (const c of stmt.cases || []) instrumentBody(c.consequent);
       }
+      const instrumentedFns = new Set();
+      function instrumentFunction(fn, method) {
+        if (!fn || !fn.body || fn.body.type !== "BlockStatement" || instrumentedFns.has(fn)) return;
+        instrumentedFns.add(fn);
+        if (!fn.async) inserts.push({ pos: method ? method.key.start : fn.start, text: "async " });
+        instrumentBody(fn.body.body);
+      }
+      function walkFunctions(node, parent) {
+        if (!node || typeof node !== "object") return;
+        if (Array.isArray(node)) { for (const item of node) walkFunctions(item, parent); return; }
+        if (node.type === "MethodDefinition") {
+          if (node.value && node.kind !== "constructor" && node.kind !== "get" && node.kind !== "set") instrumentFunction(node.value, node);
+          walkFunctions(node.value && node.value.body, node);
+          return;
+        }
+        if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") {
+          instrumentFunction(node, null);
+          walkFunctions(node.body, node);
+        }
+        for (const key of Object.keys(node)) {
+          if (key === "loc" || key === "range" || key === "start" || key === "end") continue;
+          const child = node[key];
+          if (child && typeof child === "object") walkFunctions(child, node);
+        }
+      }
+      (ast.body || []).forEach(addStmt);
+      walkFunctions(ast, null);
       (ast.body || []).forEach(addStmt);
       inserts.sort((a, b) => b.pos - a.pos);
       for (const ins of inserts) body = body.slice(0, ins.pos) + ins.text + body.slice(ins.pos);
@@ -801,7 +809,8 @@
     try {
       const debugging = allowDebug && state.debug.active;
       if (debugging) {
-        const runner = buildDebugRunner(code, state.runSeq, Array.from(currentBreakpoints()).map((n) => n + 1));
+        const runner = buildDebugRunner(code, state.runSeq, Array.from(currentBreakpoints()).map((n) => n + 1), !!state.debug.stepOnStart);
+        state.debug.stepOnStart = false;
         state.runMeta = { sourceStartLine: runner.sourceStartLine, lineCount: runner.lineCount };
         await debugPrepare(runner);
         $("runFrame").srcdoc = runner.html;
@@ -1761,6 +1770,7 @@
     if (set.has(line)) set.delete(line); else set.add(line);
     renderBreakpoints();
     setStatus(set.has(line) ? "已设置断点：第 " + (line + 1) + " 行" : "已清除断点：第 " + (line + 1) + " 行");
+    debugSyncBreakpoints();
   }
   function codeWithBreakpoints(code) {
     const set = currentBreakpoints();
@@ -1878,6 +1888,24 @@
     if (!keys.length) { box.innerHTML = '<div class="debug-empty">当前行没有可读取变量</div>'; return; }
     box.innerHTML = '<div class="debug-scope"><div class="debug-scope-title">局部</div>' + keys.map((name) => '<div class="debug-var"><span class="debug-var-name">' + escapeHtml(name) + '</span><span class="debug-var-value">' + escapeHtml(vars[name]) + '</span></div>').join("") + '</div>';
   }
+  function debugSyncBreakpoints() {
+    if (!state.debug.active || !state.running) return;
+    try {
+      sendDebugCommand("breakpoints", { breakpoints: Array.from(currentBreakpoints()).map((n) => n + 1) });
+    } catch { }
+  }
+  function clearAllBreakpoints() {
+    state.breakpointsByFile.clear();
+    renderBreakpoints();
+    debugSyncBreakpoints();
+    setDebugStatus("已清空所有断点");
+  }
+  function startStepDebug() {
+    state.debug.stepOnStart = true;
+    setBottomTab("debug");
+    runFile();
+  }
+
   function sendDebugCommand(command, extra) {
     const frame = $("runFrame");
     if (!frame || !frame.contentWindow) return;
@@ -1957,6 +1985,8 @@
   }
   function bindDebuggerUi() {
     $("debugTab").addEventListener("click", () => setBottomTab("debug"));
+    $("debugStepStart").addEventListener("click", startStepDebug);
+    $("debugClearAll").addEventListener("click", clearAllBreakpoints);
     $("debugResume").addEventListener("click", () => debugCommand("resume"));
     $("debugPause").addEventListener("click", () => debugCommand("pause"));
     $("debugStepOver").addEventListener("click", () => debugCommand("step"));
