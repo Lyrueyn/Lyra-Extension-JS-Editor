@@ -1904,6 +1904,13 @@
   async function debugPrepareCdp(runner) {
     await debugEnsure();
     state.debug.backend = "cdp";
+    try {
+      for (const sid of (state.debug.sessions || [])) {
+        try { await cdp("Target.detachFromTarget", { sessionId: sid }); } catch { }
+      }
+      $("runFrame").srcdoc = "";
+      await new Promise((r) => setTimeout(r, 120));
+    } catch { }
     state.debug.paused = false;
     state.debug.everPaused = false;
     state.debug.gateWaiting = false;

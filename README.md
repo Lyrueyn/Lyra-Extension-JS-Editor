@@ -291,3 +291,7 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 
 - 每次调试运行重置闸门/暂停/会话/临时断点状态，修复第二次运行断点失效。
 - 闸门重试和兜底定时器带 runSeq，旧运行的定时器不会再放行/结束新运行。
+
+## 1.21.12
+
+- 每次调试运行前先清空 runFrame、detach 上一轮 iframe/子目标会话，避免旧目标重复附加和旧断点抢占。
