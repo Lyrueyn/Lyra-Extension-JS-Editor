@@ -323,3 +323,7 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 ## 1.21.19
 
 - 复用第一次附加的 runFrame 子会话，后续运行不再 detach/重建，只重新注册断点后更新 srcdoc；修复断点只生效一次。
+
+## 1.21.20
+
+- 每次调试运行替换整个 runFrame iframe 元素，强制创建全新子目标；旧目标/旧会话销毁，避免第二次卡住或断点失效。

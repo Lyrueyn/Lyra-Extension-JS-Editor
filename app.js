@@ -835,12 +835,7 @@
         try {
           await debugPrepareCdp(normal);
           $("runFrame").srcdoc = normal.html;
-          if (state.debug.childSession) {
-            state.debug.gateReady = true;
-            tryReleaseDebugGate();
-          } else {
-            await debugAttachCurrentChild();
-          }
+          await debugAttachCurrentChild();
           return;
         } catch (e) {
           state.debug.backend = "instrument";
@@ -1907,21 +1902,26 @@
     await debugEnsure();
     state.debug.backend = "cdp";
     const keepIframe = state.debug.iframeSession || "";
-    const keepChild = state.debug.childSession || "";
+    const keepChild = "";
     try {
       for (const sid of (state.debug.sessions || [])) {
         if (sid === keepIframe || sid === keepChild) continue;
         try { await cdp("Target.detachFromTarget", { sessionId: sid }); } catch { }
       }
-      if (!keepChild) {
-        $("runFrame").srcdoc = "";
-        await new Promise((r) => setTimeout(r, 350));
-      }
+      try {
+        const old = $("runFrame");
+        if (old && old.parentNode) {
+          const fresh = old.cloneNode(false);
+          fresh.removeAttribute("srcdoc");
+          old.parentNode.replaceChild(fresh, old);
+        }
+      } catch { }
+      await new Promise((r) => setTimeout(r, 250));
     } catch { }
     state.debug.sessions = keepIframe ? [keepIframe] : [];
-    if (keepChild) state.debug.sessions.push(keepChild);
     state.debug.childTargets = {};
-    state.debug.sessionId = keepChild || keepIframe;
+    state.debug.childSession = "";
+    state.debug.sessionId = keepIframe;
     state.debug.lastPauseKey = "";
     state.debug.lastPauseAt = 0;
     state.debug.paused = false;
