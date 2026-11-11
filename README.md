@@ -340,3 +340,11 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 
 - 逐行运行在 runFrame 子会话第一行设置临时断点。
 - 变量面板 Runtime.getProperties 带上当前调试会话 sessionId，修复变量一直为空。
+
+## 2.0.0
+
+- 正式版：V8 CDP 调试器（固定 WebView2 144）。
+- 构造函数/表达式级断点、逐行运行、进入/跳出/单步、真实作用域变量、调用栈、求值。
+- 清空断点、调试输出、运行结束收尾。
+- 多轮运行重建 runFrame 目标，复用 iframe 会话，修复第二次失效/卡住。
+- 跳过运行器内部行，单步只显示源码 1-N 行。
