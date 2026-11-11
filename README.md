@@ -335,3 +335,8 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 ## 1.21.22
 
 - 超出源码行号的暂停只跳过匿名包装帧；有函数名的帧保留，避免误跳函数体。
+
+## 1.21.23
+
+- 逐行运行在 runFrame 子会话第一行设置临时断点。
+- 变量面板 Runtime.getProperties 带上当前调试会话 sessionId，修复变量一直为空。

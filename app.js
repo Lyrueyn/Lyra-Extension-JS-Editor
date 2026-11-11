@@ -28,7 +28,7 @@
     lintTimer: 0,
     lintLineClasses: new Map(),
     bottomTab: "console",
-    debug: { enabled: false, active: false, paused: false, backend: "", frameId: null, frames: [], pausedLine: null, breakpointIds: [], tempBreakpointId: "", stepOnStart: false, sessionId: "", sessions: [], iframeSession: "", childTargets: {}, childSession: "", gateWaiting: false, gateReady: false, everPaused: false },
+    debug: { enabled: false, active: false, paused: false, backend: "", frameId: null, frames: [], pausedLine: null, breakpointIds: [], tempBreakpointId: "", stepOnStart: false, sessionId: "", sessions: [], iframeSession: "", childTargets: {}, childSession: "", gateWaiting: false, gateReady: false, everPaused: false, stepStartRequest: false },
     problemIndex: -1,
     consoleAutoScroll: true,
     pendingRunDone: null,
@@ -830,6 +830,7 @@
       if (debugging) {
         const stepOnStart = !!state.debug.stepOnStart;
         state.debug.stepOnStart = false;
+        state.debug.stepStartRequest = stepOnStart;
         const normal = buildRunner(code, state.runSeq, true);
         state.runMeta = { sourceStartLine: normal.sourceStartLine, lineCount: normal.lineCount };
         try {
@@ -2141,6 +2142,15 @@
             await cdp("Runtime.enable", {}, att.sessionId);
             
             await debugSetCdpBreakpoints(att.sessionId);
+            if (state.debug.stepStartRequest) {
+              state.debug.stepStartRequest = false;
+              try {
+                const offset = Math.max(0, (state.runMeta && state.runMeta.sourceStartLine ? state.runMeta.sourceStartLine : 1) - 1);
+                const tb = await cdp("Debugger.setBreakpointByUrl", { lineNumber: offset, columnNumber: 0, urlRegex: ".*lyra-user-code\\.js.*" }, att.sessionId);
+                state.debug.tempBreakpointId = tb && tb.breakpointId || "";
+                debugOut("逐行运行：已在第一行设置临时断点");
+              } catch (e) { debugOut("逐行运行临时断点失败：" + (e && e.message ? e.message : e)); }
+            }
             try { await cdp("Runtime.runIfWaitingForDebugger", {}, att.sessionId); } catch { }
             state.debug.gateReady = true;
             debugOut("直接附加 runFrame 子目标：" + fresh.targetId);
@@ -2274,7 +2284,7 @@
       if (!scope.object || !scope.object.objectId) continue;
       let props = [];
       try {
-        const res = await cdp("Runtime.getProperties", { objectId: scope.object.objectId, ownProperties: true, nonIndexedPropertiesOnly: false });
+        const res = await cdp("Runtime.getProperties", { objectId: scope.object.objectId, ownProperties: true, nonIndexedPropertiesOnly: false }, state.debug.sessionId);
         props = Array.isArray(res.result) ? res.result : [];
       } catch { }
       if (!props.length) continue;
