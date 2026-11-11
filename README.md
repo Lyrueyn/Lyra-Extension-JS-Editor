@@ -315,3 +315,7 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 ## 1.21.17
 
 - 关闭 autoAttach，只保留运行时主动附加 runFrame；消除重复暂停会话。
+
+## 1.21.18
+
+- 移除调试运行 15 秒兜底，避免长单步/跳出过程被提前结束导致异步日志缺失。

@@ -836,10 +836,6 @@
           await debugPrepareCdp(normal);
           $("runFrame").srcdoc = normal.html;
           await debugAttachCurrentChild();
-          const debugSeq = state.runSeq;
-          setTimeout(() => {
-            if (state.runSeq === debugSeq && state.running && !state.debug.paused) endRun(false);
-          }, 15000);
           return;
         } catch (e) {
           state.debug.backend = "instrument";
