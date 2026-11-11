@@ -327,3 +327,7 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 ## 1.21.20
 
 - 每次调试运行替换整个 runFrame iframe 元素，强制创建全新子目标；旧目标/旧会话销毁，避免第二次卡住或断点失效。
+
+## 1.21.21
+
+- 单步进入生成器包装代码（hook/gate/setTimeout 收尾）时自动跳过并 resume，不再显示超出源码行号的第 67/68 行。

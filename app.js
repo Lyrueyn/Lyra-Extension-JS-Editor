@@ -2012,6 +2012,12 @@
     state.debug.frameId = frame ? frame.callFrameId : null;
     state.debug.selectedFrame = frame ? state.debug.frames.indexOf(frame) : 0;
     const line = debugFrameSourceLine(frame);
+    const userLines = (state.runMeta && state.runMeta.lineCount) || 0;
+    if (line < 0 || (userLines > 0 && line >= userLines)) {
+      debugOut("跳过生成器内部行：" + (line + 1));
+      if (sessionId) { try { cdp("Debugger.resume", {}, sessionId).catch(() => { }); } catch { } }
+      return;
+    }
     state.debug.line = line;
     clearDebugLine();
     if (cm && line >= 0 && line < cm.lineCount()) {
