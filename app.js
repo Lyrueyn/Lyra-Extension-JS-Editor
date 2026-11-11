@@ -835,7 +835,12 @@
         try {
           await debugPrepareCdp(normal);
           $("runFrame").srcdoc = normal.html;
-          await debugAttachCurrentChild();
+          if (state.debug.childSession) {
+            state.debug.gateReady = true;
+            tryReleaseDebugGate();
+          } else {
+            await debugAttachCurrentChild();
+          }
           return;
         } catch (e) {
           state.debug.backend = "instrument";
@@ -1902,18 +1907,21 @@
     await debugEnsure();
     state.debug.backend = "cdp";
     const keepIframe = state.debug.iframeSession || "";
+    const keepChild = state.debug.childSession || "";
     try {
       for (const sid of (state.debug.sessions || [])) {
-        if (sid === keepIframe) continue;
+        if (sid === keepIframe || sid === keepChild) continue;
         try { await cdp("Target.detachFromTarget", { sessionId: sid }); } catch { }
       }
-      $("runFrame").srcdoc = "";
-      await new Promise((r) => setTimeout(r, 350));
+      if (!keepChild) {
+        $("runFrame").srcdoc = "";
+        await new Promise((r) => setTimeout(r, 350));
+      }
     } catch { }
     state.debug.sessions = keepIframe ? [keepIframe] : [];
+    if (keepChild) state.debug.sessions.push(keepChild);
     state.debug.childTargets = {};
-    state.debug.childSession = "";
-    state.debug.sessionId = keepIframe;
+    state.debug.sessionId = keepChild || keepIframe;
     state.debug.lastPauseKey = "";
     state.debug.lastPauseAt = 0;
     state.debug.paused = false;
@@ -1928,6 +1936,11 @@
     if (state.debug.iframeSession) {
       try {
         await debugSetCdpBreakpoints(state.debug.iframeSession);
+        if (keepChild) {
+          await cdp("Debugger.enable", {}, keepChild);
+          await debugSetCdpBreakpoints(keepChild);
+          state.debug.gateReady = true;
+        }
         debugOut("复用 iframe 调试会话：" + state.debug.iframeSession);
       } catch (e) { debugOut("复用 iframe 调试会话失败：" + (e && e.message ? e.message : e)); }
     }
