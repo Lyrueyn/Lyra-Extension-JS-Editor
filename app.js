@@ -2013,10 +2013,14 @@
     state.debug.selectedFrame = frame ? state.debug.frames.indexOf(frame) : 0;
     const line = debugFrameSourceLine(frame);
     const userLines = (state.runMeta && state.runMeta.lineCount) || 0;
-    if (line < 0 || (userLines > 0 && line >= userLines)) {
+    const fnName = String((frame && frame.functionName) || "");
+    if ((line < 0 || (userLines > 0 && line >= userLines)) && !fnName) {
       debugOut("跳过生成器内部行：" + (line + 1));
       if (sessionId) { try { cdp("Debugger.resume", {}, sessionId).catch(() => { }); } catch { } }
       return;
+    }
+    if (line >= userLines && fnName) {
+      debugOut("函数内部帧超出源码范围：" + fnName + " · 第 " + (line + 1) + " 行");
     }
     state.debug.line = line;
     clearDebugLine();

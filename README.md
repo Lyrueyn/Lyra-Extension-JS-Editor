@@ -331,3 +331,7 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 ## 1.21.21
 
 - 单步进入生成器包装代码（hook/gate/setTimeout 收尾）时自动跳过并 resume，不再显示超出源码行号的第 67/68 行。
+
+## 1.21.22
+
+- 超出源码行号的暂停只跳过匿名包装帧；有函数名的帧保留，避免误跳函数体。
