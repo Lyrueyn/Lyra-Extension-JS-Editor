@@ -1956,8 +1956,7 @@
           await cdp("Debugger.enable", {}, att.sessionId);
           await cdp("Runtime.enable", {}, att.sessionId);
           try {
-            const aa = await cdp("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, att.sessionId);
-            debugOut("iframe autoAttach 已启用");
+            debugOut("iframe autoAttach 已禁用");
             if (aa) debugOut("iframe autoAttach 返回：" + JSON.stringify(aa));
           } catch (e) { debugOut("iframe autoAttach 失败：" + (e && e.message ? e.message : e)); }
           await debugSetCdpBreakpoints(att.sessionId);
@@ -2110,6 +2109,7 @@
         const targets = await cdp("Target.getTargets");
         const infos = (targets && targets.targetInfos) || [];
         const candidates = infos.filter((t) => t.type === "iframe" && /about:srcdoc/i.test(String(t.url || "")));
+        if (attempt === 0) debugOut("runFrame 候选目标：" + infos.filter((t) => t.type === "iframe").map((t) => t.url || "(空)").join(" | "));
         const fresh = candidates.find((t) => !state.debug.childTargets[t.targetId]) || candidates[0];
         if (fresh) {
           if (state.debug.childTargets[fresh.targetId]) return;
@@ -2120,7 +2120,7 @@
             state.debug.sessions.push(att.sessionId);
             await cdp("Debugger.enable", {}, att.sessionId);
             await cdp("Runtime.enable", {}, att.sessionId);
-            try { await cdp("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, att.sessionId); } catch { }
+            
             await debugSetCdpBreakpoints(att.sessionId);
             try { await cdp("Runtime.runIfWaitingForDebugger", {}, att.sessionId); } catch { }
             state.debug.gateReady = true;
@@ -2183,7 +2183,7 @@
     try {
       await cdp("Debugger.enable", {}, childSessionId);
       await cdp("Runtime.enable", {}, childSessionId);
-      try { await cdp("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, childSessionId); } catch { }
+      
       await debugSetCdpBreakpoints(childSessionId);
       try { await cdp("Runtime.runIfWaitingForDebugger", {}, childSessionId); } catch { }
       state.debug.gateReady = true;

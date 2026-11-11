@@ -311,3 +311,7 @@ GPL-3.0-only. See [LICENSE](LICENSE). Bundled third-party libraries are listed i
 ## 1.21.16
 
 - 去重重复的 V8 暂停事件；重复事件自动 resume 对应会话，避免同一脚本被两个会话同时暂停导致后续异步日志丢失。
+
+## 1.21.17
+
+- 关闭 autoAttach，只保留运行时主动附加 runFrame；消除重复暂停会话。
